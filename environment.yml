@@ -1,0 +1,54 @@
+name: gscan
+channels:
+  - defaults
+dependencies:
+  - _libgcc_mutex=0.1=main
+  - ca-certificates=2020.12.8=h06a4308_0
+  - certifi=2020.12.5=py37h06a4308_0
+  - ld_impl_linux-64=2.33.1=h53a641e_7
+  - libedit=3.1.20191231=h14c3975_1
+  - libffi=3.3=he6710b0_2
+  - libgcc-ng=9.1.0=hdf63c60_0
+  - libstdcxx-ng=9.1.0=hdf63c60_0
+  - ncurses=6.2=he6710b0_1
+  - openssl=1.1.1i=h27cfd23_0
+  - pip=20.3.3=py37h06a4308_0
+  - python=3.7.9=h7579374_0
+  - readline=8.0=h7b6447c_0
+  - setuptools=51.0.0=py37h06a4308_2
+  - sqlite=3.33.0=h62c20be_0
+  - tk=8.6.10=hbc83047_0
+  - wheel=0.36.2=pyhd3eb1b0_0
+  - xz=5.2.5=h7b6447c_0
+  - zlib=1.2.11=h7b6447c_3
+  - pip:
+    - click==7.1.2
+    - cloudpickle==1.6.0
+    - cycler==0.10.0
+    - future==0.18.2
+    - gym==0.18.0
+    - imageio==2.9.0
+    - joblib==1.0.0
+    - kiwisolver==1.3.1
+    - matplotlib==3.3.3
+    - metaphone==0.6
+    - nltk==3.5
+    - numpy==1.19.4
+    - opencv-python==4.4.0.46
+    - pillow==7.2.0
+    - pronounceable==0.1.3
+    - pyglet==1.5.0
+    - pyparsing==2.4.7
+    - pyqt5==5.15.2
+    - pyqt5-sip==12.8.1
+    - python-dateutil==2.8.1
+    - pyyaml==5.3.1
+    - regex==2020.11.13
+    - scipy==1.5.4
+    - six==1.15.0
+    - torch==1.7.1
+    - torchvision==0.8.2
+    - tqdm==4.55.0
+    - typing-extensions==3.7.4.3
+    - xlwt==1.3.0
+prefix: /storage/raid1/homedirs/mitja.nikolaus/anaconda3/envs/gscan
