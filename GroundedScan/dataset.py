@@ -1325,6 +1325,7 @@ class GroundedScan(object):
                             logger.info("Number of examples: {}".format(example_count + 1))
                             print(f"Generated {len(self._data_pairs['train'])} train examples")
                             print(f"Generated {len(self._data_pairs['train_teacher'])} train_teacher examples")
+                            print(split_counter.most_common())
                         if max_examples:
                             if example_count >= max_examples:
                                 break
