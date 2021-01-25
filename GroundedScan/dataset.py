@@ -18,6 +18,9 @@ from xlwt import Workbook
 import pdb
 logger = logging.getLogger("GroundedScan")
 
+GENERALIZATION_SPLIT_NAMES = ["visual", "visual_easier", "situational_1", "situational_2", "contextual", "adverb_1",
+                         "adverb_2"]
+
 
 class GroundedScan(object):
     """
@@ -91,7 +94,7 @@ class GroundedScan(object):
         self._percentage_train = percentage_train
         self._percentage_dev = percentage_dev
         self._possible_splits = ["train", "dev", "test", "visual", "situational_1", "situational_2", "contextual",
-                                 "adverb_1", "adverb_2", "visual_easier", "target_lengths"]
+                                 "adverb_1", "adverb_2", "visual_easier", "target_lengths", "train_teacher"]
         self._data_pairs = self.get_empty_split_dict()
         self._template_identifiers = self.get_empty_split_dict()
         self._examples_to_visualize = []
@@ -1255,7 +1258,7 @@ class GroundedScan(object):
     def get_data_pairs(self, max_examples=None, num_resampling=1, other_objects_sample_percentage=0.5,
                        split_type="uniform", visualize_per_template=0, visualize_per_split=0, train_percentage=0.8,
                        min_other_objects=0, k_shot_generalization=0, make_dev_set=False,
-                       cut_off_target_length=25) -> {}:
+                       cut_off_target_length=25, exclude_samples=None) -> {}:
         """
         Generate a set of situations and generate all possible commands based on the current grammar and lexicon,
         match commands to situations based on relevance (if a command refers to a target object, it needs to be
@@ -1264,6 +1267,17 @@ class GroundedScan(object):
         if k_shot_generalization > 0 and split_type == "uniform":
             logger.info("WARNING: k_shot_generalization set to {} but for split_type uniform this is not used.".format(
                 k_shot_generalization))
+
+        data_to_be_excluded = None
+        if exclude_samples:
+            with open(exclude_samples, 'r') as infile:
+                data = json.load(infile)
+
+                data_to_be_excluded = []
+                for split in GENERALIZATION_SPLIT_NAMES:
+                    data_to_be_excluded += data["examples"][split]
+
+        split_counter = Counter()
 
         # Save current situation of the world for later restoration.
         current_situation = self._world.get_current_situation()
@@ -1275,9 +1289,12 @@ class GroundedScan(object):
         self.generate_all_commands()
         example_count = 0
         dropped_examples = 0
+        # TODO shuffle?
+        random.shuffle(self._grammar.all_derivations)
         for template_num, template_derivations in self._grammar.all_derivations.items():
             visualized_per_template = 0
             visualized_per_split = {split: 0 for split in self._possible_splits}
+            random.shuffle(template_derivations)
             for derivation in template_derivations:
                 arguments = []
                 derivation.meaning(arguments)
@@ -1291,6 +1308,7 @@ class GroundedScan(object):
                     referred_size=self._vocabulary.translate_word(target_predicate["size"]),
                     referred_color=self._vocabulary.translate_word(target_predicate["color"]),
                     referred_shape=self._vocabulary.translate_word(target_predicate["noun"]))
+                random.shuffle(possible_target_objects)
                 for target_size, target_color, target_shape in possible_target_objects:
                     relevant_situations = situation_specifications[target_shape][target_color][target_size]
                     num_relevant_situations = len(relevant_situations)
@@ -1300,10 +1318,13 @@ class GroundedScan(object):
                         idx_for_train = random.sample([i for i in range(num_relevant_situations)], k=int(
                             num_relevant_situations * train_percentage))
                         idx_for_train = set(idx_for_train)
+                    random.shuffle(relevant_situations)
                     for i, relevant_situation in enumerate(relevant_situations):
                         visualize = False
-                        if (example_count + 1) % 10000 == 0:
+                        if (example_count + 1) % 1000 == 0:
                             logger.info("Number of examples: {}".format(example_count + 1))
+                            print(f"Generated {len(self._data_pairs['train'])} train examples")
+                            print(f"Generated {len(self._data_pairs['train_teacher'])} train_teacher examples")
                         if max_examples:
                             if example_count >= max_examples:
                                 break
@@ -1337,6 +1358,36 @@ class GroundedScan(object):
                                                         self._vocabulary.translate_word(adverb))
                             if len(splits) == 0:
                                 splits = ["train"]
+
+                            if data_to_be_excluded:
+                                # if the example belongs to a generalization split
+                                if len(set(splits) & set(GENERALIZATION_SPLIT_NAMES)) > 0:
+                                    example = {
+                                        "command": self.command_repr(derivation.words()),
+                                        "meaning": self.command_repr(self.meaning_command(derivation.words())),
+                                        "derivation": self.derivation_repr(derivation),
+                                        "situation": situation.to_representation(),
+                                        "target_commands": self.command_repr(target_commands),
+                                        "verb_in_command": self._vocabulary.translate_word(target_action),
+                                        "manner": self._vocabulary.translate_word(adverb),
+                                        "referred_target": ' '.join(
+                                            [self._vocabulary.translate_word(target_predicate["size"]),
+                                             self._vocabulary.translate_word(target_predicate["color"]),
+                                             self._vocabulary.translate_word(target_predicate["noun"])])
+                                    }
+                                    found_same = False
+                                    for ex in data_to_be_excluded:
+                                        if self.compare_examples(example, ex):
+                                            found_same = True
+                                    if found_same:
+                                        self._world.clear_situation()
+                                        continue
+                                    else:
+                                        print(f"found new test example for splits {splits}")
+                                        split_counter.update(splits)
+                                        splits = ["train_teacher"]
+
+
                             elif len(splits) > 1:
                                 dropped_examples += 1
                                 self._world.clear_situation()
@@ -1363,13 +1414,19 @@ class GroundedScan(object):
                         if visualize:
                             visualized_per_template += 1
                         self._world.clear_situation()
+
+                        if len(self._data_pairs["train"]) >= 367933:
+                            print(f"Generated {len(self._data_pairs['train'])} train examples")
+                            print(f"Generated {len(self._data_pairs['train_teacher'])} train_teacher examples")
+                            break
+
         logger.info("Dropped {} examples due to belonging to multiple splits.".format(dropped_examples))
         if split_type == "generalization":
             self.make_test_set(percentage=(1 - self._percentage_train), type_set="test")
-        logger.info("Discarding equivalent examples, may take a while...")
-        equivalent_examples = self.discard_equivalent_examples()
-        logger.info("Discarded {} examples from the test set that were already in the training set.".format(
-            equivalent_examples))
+        # logger.info("Discarding equivalent examples, may take a while...")
+        # equivalent_examples = self.discard_equivalent_examples()
+        # logger.info("Discarded {} examples from the test set that were already in the training set.".format(
+        #     equivalent_examples))
 
         if make_dev_set:
             self.make_test_set(percentage=self._percentage_dev, type_set="dev")
@@ -1379,6 +1436,14 @@ class GroundedScan(object):
 
         # restore situation
         self.initialize_world(current_situation, mission=current_mission)
+
+        print(split_counter.most_common())
+        print("total new: ", len(self._data_pairs["train_teacher"]))
+        print("train: ", len(self._data_pairs["train"]))
+
+        self._data_pairs["train"] += self._data_pairs["train_teacher"]
+        print("train (extended): ", len(self._data_pairs["train"]))
+
         return
 
     def assign_splits(self, target_size: str, target_color: str, target_shape: str, verb_in_command: str,

@@ -94,6 +94,9 @@ def main():
     parser.add_argument('--num_color_adjectives', type=int, default=2, help='number of color adjectives to sample.')
     parser.add_argument('--num_size_adjectives', type=int, default=2, help='number of size adjectives to sample.')
 
+    parser.add_argument('--exclude_samples', type=str, help='Path to file of dataset of which test samples should be '
+                                                            'excluded when generating data.')
+
     flags = vars(parser.parse_args())
 
     if flags["type_grammar"] == "full":
@@ -147,7 +150,8 @@ def main():
                                      min_other_objects=flags['min_other_objects'],
                                      k_shot_generalization=flags['k_shot_generalization'],
                                      make_dev_set=flags["make_dev_set"],
-                                     cut_off_target_length=flags["cut_off_target_length"])
+                                     cut_off_target_length=flags["cut_off_target_length"],
+                                     exclude_samples=flags["exclude_samples"])
         logger.info("Gathering dataset statistics...")
         grounded_scan.save_dataset_statistics(split="train")
         if flags["split"] == "uniform" or flags["split"] == "target_lengths":
