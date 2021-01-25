@@ -1323,9 +1323,9 @@ class GroundedScan(object):
                         visualize = False
                         if (example_count + 1) % 1000 == 0:
                             logger.info("Number of examples: {}".format(example_count + 1))
-                            print(f"Generated {len(self._data_pairs['train'])} train examples")
-                            print(f"Generated {len(self._data_pairs['train_teacher'])} train_teacher examples")
-                            print(split_counter.most_common())
+                            logger.info(f"Generated {len(self._data_pairs['train'])} train examples")
+                            logger.info(f"Generated {len(self._data_pairs['train_teacher'])} train_teacher examples")
+                            logger.info(split_counter.most_common())
                         if max_examples:
                             if example_count >= max_examples:
                                 break
@@ -1384,7 +1384,7 @@ class GroundedScan(object):
                                         self._world.clear_situation()
                                         continue
                                     else:
-                                        print(f"found new test example for splits {splits}")
+                                        # logger.info(f"found new test example for splits {splits}")
                                         split_counter.update(splits)
                                         splits = ["train_teacher"]
 
@@ -1417,8 +1417,8 @@ class GroundedScan(object):
                         self._world.clear_situation()
 
                         if len(self._data_pairs["train"]) >= 367933:
-                            print(f"Generated {len(self._data_pairs['train'])} train examples")
-                            print(f"Generated {len(self._data_pairs['train_teacher'])} train_teacher examples")
+                            logger.info(f"Generated {len(self._data_pairs['train'])} train examples")
+                            logger.info(f"Generated {len(self._data_pairs['train_teacher'])} train_teacher examples")
                             break
 
         logger.info("Dropped {} examples due to belonging to multiple splits.".format(dropped_examples))
@@ -1438,12 +1438,12 @@ class GroundedScan(object):
         # restore situation
         self.initialize_world(current_situation, mission=current_mission)
 
-        print(split_counter.most_common())
-        print("total new: ", len(self._data_pairs["train_teacher"]))
-        print("train: ", len(self._data_pairs["train"]))
+        logger.info(split_counter.most_common())
+        logger.info("total new: ", len(self._data_pairs["train_teacher"]))
+        logger.info("train: ", len(self._data_pairs["train"]))
 
         self._data_pairs["train"] += self._data_pairs["train_teacher"]
-        print("train (extended): ", len(self._data_pairs["train"]))
+        logger.info("train (extended): ", len(self._data_pairs["train"]))
 
         return
 
