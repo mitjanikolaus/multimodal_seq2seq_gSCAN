@@ -1416,7 +1416,7 @@ class GroundedScan(object):
                             visualized_per_template += 1
                         self._world.clear_situation()
 
-                        if len(self._data_pairs["train"]) >= 367933:
+                        if len(self._data_pairs["train"]) > 525618:
                             logger.info(f"Generated {len(self._data_pairs['train'])} train examples")
                             logger.info(f"Generated {len(self._data_pairs['train_teacher'])} train_teacher examples")
                             break
@@ -1439,12 +1439,11 @@ class GroundedScan(object):
         self.initialize_world(current_situation, mission=current_mission)
 
         logger.info(split_counter.most_common())
-        logger.info("total new: ", len(self._data_pairs["train_teacher"]))
-        logger.info("train: ", len(self._data_pairs["train"]))
+        logger.info(f"total new: {len(self._data_pairs['train_teacher'])}")
+        logger.info(f"train: {len(self._data_pairs['train'])}")
 
-        self._data_pairs["train"] += self._data_pairs["train_teacher"]
-        logger.info("train (extended): ", len(self._data_pairs["train"]))
-
+        # store datapairs in test set to transfer to other dataset later
+        self._data_pairs["test"] = self._data_pairs["train_teacher"]
         return
 
     def assign_splits(self, target_size: str, target_color: str, target_shape: str, verb_in_command: str,
