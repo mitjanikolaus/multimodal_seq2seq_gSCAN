@@ -6,6 +6,8 @@ from typing import Iterator
 import time
 import json
 
+import numpy as np
+
 from seq2seq.helpers import sequence_accuracy
 from seq2seq.gSCAN_dataset import GroundedScanDataset
 import pdb
@@ -50,6 +52,10 @@ def predict_and_save(dataset: GroundedScanDataset, model: nn.Module, output_file
                                "exact_match": True if accuracy == 100 else False,
                                "position_accuracy":  position_accuracy})
         logger.info("Wrote predictions for {} examples.".format(i))
+
+        logger.info("\n\n\n\n\nAccuracy: ", np.mean([o["accuracy"] for o in output]))
+        logger.info("Exact Match Accuracy: ", np.mean([o["exact_match"] for o in output]))
+
         json.dump(output, outfile, indent=4)
     return output_file_path
 
