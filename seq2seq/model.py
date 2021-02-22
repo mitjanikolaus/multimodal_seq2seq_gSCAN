@@ -62,10 +62,11 @@ class Model(nn.Module):
         # Output: [batch_size, hidden_size], [batch_size, max_input_length, hidden_size]
         self.encoder = EncoderRNN(input_size=input_vocabulary_size,
                                   embedding_dim=embedding_dimension,
+                                  visual_embedding_dim=cnn_hidden_num_channels * 3,
                                   rnn_input_size=embedding_dimension,
                                   hidden_size=encoder_hidden_size, num_layers=num_encoder_layers,
                                   dropout_probability=encoder_dropout_p, bidirectional=encoder_bidirectional,
-                                  padding_idx=input_padding_idx)
+                                  padding_idx=input_padding_idx, vocab_size=input_vocabulary_size)
         # Used to project the final encoder state to the decoder hidden state such that it can be initialized with it.
         self.enc_hidden_to_dec_hidden = nn.Linear(encoder_hidden_size, decoder_hidden_size)
         self.textual_attention = Attention(key_size=encoder_hidden_size, query_size=decoder_hidden_size,
@@ -98,6 +99,7 @@ class Model(nn.Module):
         self.target_eos_idx = target_eos_idx
         self.target_pad_idx = target_pad_idx
         self.loss_criterion = nn.NLLLoss(ignore_index=target_pad_idx)
+        self.lm_loss_criterion = nn.CrossEntropyLoss(ignore_index=target_pad_idx, size_average=False)
         self.tanh = nn.Tanh()
         self.output_directory = output_directory
         self.trained_iterations = 0
@@ -159,6 +161,22 @@ class Model(nn.Module):
         loss = self.loss_criterion(target_scores_2d, targets.view(-1))
         return loss
 
+
+    def get_lm_loss(self, target_scores: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """
+        :param target_scores: probabilities over target vocabulary outputted by the model, of size
+                              [batch_size, max_target_length, target_vocab_size]
+        :param targets: ground-truth targets of size [batch_size, max_target_length]
+        :return: scalar cross entropy loss averaged over the sequence length and batch size.
+        """
+        targets = self.remove_start_of_sequence(targets)
+
+        # Calculate the loss.
+        _, _, vocabulary_size = target_scores.size()
+        target_scores_2d = target_scores.reshape(-1, vocabulary_size)
+        loss = self.lm_loss_criterion(target_scores_2d, targets.view(-1))
+        return loss
+
     def get_auxiliary_loss(self, auxiliary_scores_target: torch.Tensor, target_target_positions: torch.Tensor):
         target_loss = self.auxiliary_loss_criterion(auxiliary_scores_target, target_target_positions.view(-1))
         return target_loss
@@ -175,8 +193,9 @@ class Model(nn.Module):
         if not self.simple_situation_representation:
             situations_input = self.downsample_image(situations_input)
         encoded_image = self.situation_encoder(situations_input)
-        hidden, encoder_outputs = self.encoder(commands_input, commands_lengths)
-        return {"encoded_situations": encoded_image, "encoded_commands": encoder_outputs, "hidden_states": hidden}
+        hidden, encoder_outputs, instruction_lm_logits = self.encoder(commands_input, commands_lengths, encoded_image)
+        return {"encoded_situations": encoded_image, "encoded_commands": encoder_outputs, "hidden_states": hidden,
+                "instruction_lm_logits": instruction_lm_logits}
 
     def decode_input(self, target_token: torch.LongTensor, hidden: Tuple[torch.Tensor, torch.Tensor],
                      encoder_outputs: torch.Tensor, input_lengths: List[int],
@@ -216,7 +235,7 @@ class Model(nn.Module):
         else:
             target_position_scores = torch.zeros(1), torch.zeros(1)
         return (decoder_output.transpose(0, 1),  # [batch_size, max_target_seq_length, target_vocabulary_size]
-                target_position_scores)
+                target_position_scores, encoder_output['instruction_lm_logits'])
 
     def update_state(self, is_best: bool, accuracy=None, exact_match=None) -> {}:
         self.trained_iterations += 1
@@ -259,3 +278,50 @@ class Model(nn.Module):
             best_path = os.path.join(self.output_directory, 'model_best.pth.tar')
             shutil.copyfile(path, best_path)
         return path
+
+    def sample(self, vocab, cnn_output_batch, sos_idx, eos_idx, max_time_step=20):
+        """generate one sample"""
+        sample_words = [sos_idx]
+
+        ## preproc. visual batch input
+        # max/mean pool visual kernel
+        pooled_cnn_output_batch= torch.mean(cnn_output_batch, dim=1)
+
+        ## cnn fc code
+        #_, image_dim, num_channels = cnn_output_batch.shape
+        #cnn_output_batch = cnn_output_batch.reshape((-1, int(sqrt(image_dim)), int(sqrt(image_dim)), num_channels))
+        #cnn_output_batch = cnn_output_batch.transpose(1, 3)
+
+        # transform visual featueres to lstm. hidden space
+        visual_embedding = self.encoder.visual_transform(pooled_cnn_output_batch)  # batch_size x embedding_dim
+
+        # cnn produces two extra final dims
+        #visual_embedding = visual_embedding.squeeze(-1)
+        #visual_embedding = visual_embedding.squeeze(-1)
+
+        # unsqueeze first dim because h_0 expects num_layers * num_directions, batch, hidden_size
+        visual_embedding = visual_embedding.unsqueeze(0)
+
+
+        # use it to init lstm
+        h_tm1 = visual_embedding
+        first_step = True
+        for t in range(max_time_step):
+            x_tm1_embed = self.encoder.embedding(torch.LongTensor([sample_words[-1]]))
+            x_tm1_embed = x_tm1_embed.unsqueeze(0)
+            if first_step:
+                h_t, (last_state, last_cell) = self.encoder.lstm(x_tm1_embed, (h_tm1, h_tm1))
+                first_step = False
+            else:
+                h_t, (last_state, last_cell) = self.encoder.lstm(x_tm1_embed, h_tm1)
+            h_t = self.encoder.dropout(h_t.view(-1))
+            p_t = F.softmax(self.encoder.lm_out(h_t), dim=-1)
+            x_t_wid = torch.multinomial(p_t, num_samples=1).data[0]
+            x_t = vocab.idx_to_word(x_t_wid.item())
+
+            if x_t_wid.item() == eos_idx or t == max_time_step - 1:
+                return [vocab.idx_to_word(wid) for wid in sample_words[1:]]
+            else:
+                sample_words.append(x_t_wid.item())
+
+            h_tm1 = last_state, last_cell

@@ -5,9 +5,14 @@ import logging
 from typing import Iterator
 import time
 import json
+import matplotlib.pyplot as plt
+
+
 
 from seq2seq.helpers import sequence_accuracy
 from seq2seq.gSCAN_dataset import GroundedScanDataset
+from GroundedScan.world import Situation
+
 import pdb
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 logger = logging.getLogger(__name__)
@@ -54,12 +59,13 @@ def predict_and_save(dataset: GroundedScanDataset, model: nn.Module, output_file
     return output_file_path
 
 
-def predict(data_iterator: Iterator, model: nn.Module, max_decoding_steps: int, pad_idx: int, sos_idx: int,
-            eos_idx: int, max_examples_to_evaluate=None) -> torch.Tensor:
+def predict(data_iterator: Iterator, model: nn.Module, lm_vocab: dict, max_decoding_steps: int, pad_idx: int, sos_idx: int,
+            eos_idx: int, max_examples_to_evaluate=None, dataset=None) -> torch.Tensor:
     """
     Loop over all data in data_iterator and predict until <EOS> token is reached.
     :param data_iterator: iterator containing the data to predict
     :param model: a trained model from model.py
+    :param lm_vocab: lm vocabulary
     :param max_decoding_steps: after how many steps to abort decoding
     :param pad_idx: the padding idx of the target vocabulary
     :param sos_idx: the start-of-sequence idx of the target vocabulary
@@ -73,7 +79,7 @@ def predict(data_iterator: Iterator, model: nn.Module, max_decoding_steps: int, 
     # Loop over the data.
     i = 0
     for (input_sequence, input_lengths, derivation_spec, situation, situation_spec, target_sequence,
-         target_lengths, agent_positions, target_positions) in data_iterator:
+         target_lengths, agent_positions, target_positions, situation_image) in data_iterator:
         i += 1
         if max_examples_to_evaluate:
             if i > max_examples_to_evaluate:
@@ -82,6 +88,37 @@ def predict(data_iterator: Iterator, model: nn.Module, max_decoding_steps: int, 
         encoded_input = model.encode_input(commands_input=input_sequence,
                                            commands_lengths=input_lengths,
                                            situations_input=situation)
+
+
+        # get encoder lm perplexity
+        logits = encoded_input['instruction_lm_logits']
+        _, _, vocabulary_size = logits.size()
+        targets = model.remove_start_of_sequence(input_sequence)
+        target_scores_2d = logits.reshape(-1, vocabulary_size)
+        loss = F.cross_entropy(target_scores_2d, targets.view(-1))
+        lm_perplexity = torch.exp(loss)
+
+
+        # sample 10 sentences
+        encoded_sitiuation = encoded_input['encoded_situations']
+        # unsqueze for batch size
+        sampled_sentence = model.sample(lm_vocab, encoded_sitiuation, sos_idx, eos_idx)
+        # get original sentence
+        original_sent = [lm_vocab.idx_to_word(wid) for wid in input_sequence[0, 1:-1].tolist()]
+        count = 0
+        if i % 10 == 0 and count < 6:
+            count += 1
+            print(situation_spec)
+            relevant_situation = Situation.from_representation(situation_spec[0])
+            dataset.initialize_world(relevant_situation)
+            rendered_image = dataset._world.render().getArray()
+            #plt.figure()
+            #plt.imshow(rendered_image)
+            #plt.show()
+            logger.info("original sent # %s" % (i))
+            logger.info(' '.join(original_sent))
+            logger.info("Sampled sent # %s" % (i))
+            logger.info(' '.join(sampled_sentence))
 
         # For efficiency
         projected_keys_visual = model.visual_attention.key_layer(
@@ -121,7 +158,7 @@ def predict(data_iterator: Iterator, model: nn.Module, max_decoding_steps: int, 
         else:
             auxiliary_accuracy_agent, auxiliary_accuracy_target = 0, 0
         yield (input_sequence, derivation_spec, situation_spec, output_sequence, target_sequence,
-               attention_weights_commands, attention_weights_situations, auxiliary_accuracy_target)
+               attention_weights_commands, attention_weights_situations, auxiliary_accuracy_target, lm_perplexity)
 
     elapsed_time = time.time() - start_time
     logging.info("Predicted for {} examples.".format(i))

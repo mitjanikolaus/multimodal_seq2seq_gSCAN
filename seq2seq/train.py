@@ -8,6 +8,8 @@ from seq2seq.gSCAN_dataset import GroundedScanDataset
 from seq2seq.helpers import log_parameters
 from seq2seq.evaluate import evaluate
 
+
+
 logger = logging.getLogger(__name__)
 use_cuda = True if torch.cuda.is_available() else False
 
@@ -20,7 +22,7 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
           encoder_hidden_size: int, learning_rate: float, adam_beta_1: float, adam_beta_2: float, lr_decay: float,
           lr_decay_steps: int, resume_from_file: str, max_training_iterations: int, output_directory: str,
           print_every: int, evaluate_every: int, conditional_attention: bool, auxiliary_task: bool,
-          weight_target_loss: float, attention_type: str, k: int, max_training_examples=None, seed=42, **kwargs):
+          weight_target_loss: float, weight_lm_loss: float, attention_type: str, k: int, max_training_examples=None, seed=42, **kwargs):
     device = torch.device(type='cuda') if use_cuda else torch.device(type='cpu')
     cfg = locals().copy()
 
@@ -90,16 +92,20 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
         # Shuffle the dataset and loop over it.
         training_set.shuffle_data()
         for (input_batch, input_lengths, _, situation_batch, _, target_batch,
-             target_lengths, agent_positions, target_positions) in training_set.get_data_iterator(
+             target_lengths, agent_positions, target_positions, _) in training_set.get_data_iterator(
                 batch_size=training_batch_size):
             is_best = False
             model.train()
 
             # Forward pass.
-            target_scores, target_position_scores = model(commands_input=input_batch, commands_lengths=input_lengths,
+            target_scores, target_position_scores, instruction_lm_scores = model(commands_input=input_batch, commands_lengths=input_lengths,
                                                           situations_input=situation_batch, target_batch=target_batch,
                                                           target_lengths=target_lengths)
             loss = model.get_loss(target_scores, target_batch)
+
+            lm_loss = model.get_lm_loss(instruction_lm_scores, input_batch)
+            loss += weight_lm_loss * lm_loss
+
             if auxiliary_task:
                 target_loss = model.get_auxiliary_loss(target_position_scores, target_positions)
             else:
@@ -121,23 +127,26 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
                 else:
                     auxiliary_accuracy_target = 0.
                 learning_rate = scheduler.get_lr()[0]
-                logger.info("Iteration %08d, loss %8.4f, accuracy %5.2f, exact match %5.2f, learning_rate %.5f,"
-                            " aux. accuracy target pos %5.2f" % (training_iteration, loss, accuracy, exact_match,
+                logger.info("Iteration %08d, loss %8.4f, lm_loss %8.4f, accuracy %5.2f, exact match %5.2f, learning_rate %.5f,"
+                            " aux. accuracy target pos %5.2f" % (training_iteration, loss, lm_loss, accuracy, exact_match,
                                                                  learning_rate, auxiliary_accuracy_target))
 
             # Evaluate on test set.
             if training_iteration % evaluate_every == 0:
                 with torch.no_grad():
                     model.eval()
+                    instruction_vocab = test_set.get_vocabulary('input')
                     logger.info("Evaluating..")
-                    accuracy, exact_match, target_accuracy = evaluate(
-                        test_set.get_data_iterator(batch_size=1), model=model,
+
+                    accuracy, exact_match, target_accuracy, perplexity = evaluate(
+                        test_set.get_data_iterator(batch_size=1), model=model, lm_vocab=instruction_vocab,
                         max_decoding_steps=max_decoding_steps, pad_idx=test_set.target_vocabulary.pad_idx,
                         sos_idx=test_set.target_vocabulary.sos_idx,
                         eos_idx=test_set.target_vocabulary.eos_idx,
-                        max_examples_to_evaluate=kwargs["max_testing_examples"])
+                        max_examples_to_evaluate=kwargs["max_testing_examples"], dataset=test_set.dataset)
                     logger.info("  Evaluation Accuracy: %5.2f Exact Match: %5.2f "
-                                " Target Accuracy: %5.2f" % (accuracy, exact_match, target_accuracy))
+                                " Target Accuracy: %5.2f Perplexity: %5.2f"
+                                % (accuracy, exact_match, target_accuracy, perplexity))
                     if exact_match > best_exact_match:
                         is_best = True
                         best_accuracy = accuracy

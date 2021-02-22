@@ -10,6 +10,7 @@ import numpy as np
 
 from GroundedScan.dataset import GroundedScan
 
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 logger = logging.getLogger(__name__)
 
@@ -197,6 +198,7 @@ class GroundedScanDataset(object):
             target_batch = []
             situation_batch = []
             situation_representation_batch = []
+            situation_image_batch = []
             derivation_representation_batch = []
             agent_positions_batch = []
             target_positions_batch = []
@@ -219,12 +221,14 @@ class GroundedScanDataset(object):
                 derivation_representation_batch.append(example["derivation_representation"])
                 agent_positions_batch.append(example["agent_position"])
                 target_positions_batch.append(example["target_position"])
+                situation_image_batch.append(example["situation_image"])
 
             yield (torch.cat(input_batch, dim=0), input_lengths, derivation_representation_batch,
                    torch.cat(situation_batch, dim=0), situation_representation_batch, torch.cat(target_batch, dim=0),
-                   target_lengths, torch.cat(agent_positions_batch, dim=0), torch.cat(target_positions_batch, dim=0))
+                   target_lengths, torch.cat(agent_positions_batch, dim=0), torch.cat(target_positions_batch, dim=0),
+                   situation_image_batch)
 
-    def read_dataset(self, max_examples=None, simple_situation_representation=True) -> {}:
+    def read_dataset(self, max_examples=None, simple_situation_representation=False) -> {}:
         """
         Loop over the data examples in GroundedScan and convert them to tensors, also save the lengths
         for input and target sequences that are needed for padding.
@@ -258,6 +262,7 @@ class GroundedScanDataset(object):
             empty_example["situation_tensor"] = torch.tensor(situation_image, dtype=torch.float, device=device
                                                              ).unsqueeze(dim=0)
             empty_example["situation_representation"] = situation_repr
+            empty_example["situation_image"] = situation_image
             empty_example["derivation_representation"] = example["derivation_representation"]
             empty_example["agent_position"] = torch.tensor(
                 (int(situation_repr["agent_position"]["row"]) * int(situation_repr["grid_size"])) +

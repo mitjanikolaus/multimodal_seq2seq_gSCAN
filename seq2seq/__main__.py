@@ -53,6 +53,8 @@ parser.add_argument("--evaluate_every", type=int, default=1000, help="How often 
                                                                      "test set (without teacher forcing).")
 parser.add_argument("--max_training_iterations", type=int, default=100000)
 parser.add_argument("--weight_target_loss", type=float, default=0.3, help="Only used if --auxiliary_task set.")
+parser.add_argument("--weight_lm_loss", type=float, default=1, help="Weight for the LM target loss.")
+
 
 # Testing and predicting arguments
 parser.add_argument("--max_testing_examples", type=int, default=None)
@@ -84,8 +86,8 @@ parser.add_argument("--embedding_dimension", type=int, default=25)
 parser.add_argument("--num_encoder_layers", type=int, default=1)
 parser.add_argument("--encoder_hidden_size", type=int, default=100)
 parser.add_argument("--encoder_dropout_p", type=float, default=0.3, help="Dropout on instruction embeddings and LSTM.")
-parser.add_argument("--encoder_bidirectional", dest="encoder_bidirectional", default=True, action="store_true")
-parser.add_argument("--encoder_unidirectional", dest="encoder_bidirectional", default=False, action="store_false")
+parser.add_argument("--encoder_bidirectional", dest="encoder_bidirectional", default=False, action="store_true")
+parser.add_argument("--encoder_unidirectional", dest="encoder_bidirectional", default=True, action="store_false")
 
 # Decoder arguments
 parser.add_argument("--num_decoder_layers", type=int, default=1)
