@@ -13,5 +13,5 @@
 source activate gscan
 
 # train model on teacher train split
-python -u -m seq2seq --mode=train --max_decoding_steps=120 --max_testing_examples=2000 --data_directory=data/teacher --attention_type=bahdanau --no_auxiliary_task --conditional_attention --output_directory=out_teacher --training_batch_size=200 --max_training_iterations=200000 --seed=1
+python -u -m seq2seq --mode=train --max_decoding_steps=120 --max_testing_examples=2000 --data_directory=data/teacher_small_20 --attention_type=bahdanau --no_auxiliary_task --conditional_attention --output_directory=out_teacher_small_20 --training_batch_size=200 --max_training_iterations=200000 --seed=1
 
