@@ -307,7 +307,7 @@ class Model(nn.Module):
         h_tm1 = visual_embedding
         first_step = True
         for t in range(max_time_step):
-            x_tm1_embed = self.encoder.embedding(torch.LongTensor([sample_words[-1]], device=device))
+            x_tm1_embed = self.encoder.embedding(torch.tensor([sample_words[-1]], device=device, dtype=torch.long))
             x_tm1_embed = x_tm1_embed.unsqueeze(0)
             if first_step:
                 h_t, (last_state, last_cell) = self.encoder.lstm(x_tm1_embed, (h_tm1, h_tm1))
