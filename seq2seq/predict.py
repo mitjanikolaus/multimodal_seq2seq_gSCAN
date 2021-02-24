@@ -105,13 +105,11 @@ def predict(data_iterator: Iterator, model: nn.Module, lm_vocab: dict, max_decod
         sampled_sentence = model.sample(lm_vocab, encoded_sitiuation, sos_idx, eos_idx)
         # get original sentence
         original_sent = [lm_vocab.idx_to_word(wid) for wid in input_sequence[0, 1:-1].tolist()]
-        count = 0
-        if i % 10 == 0 and count < 6:
-            count += 1
+        if i % 100 == 0:
             print(situation_spec)
-            relevant_situation = Situation.from_representation(situation_spec[0])
-            dataset.initialize_world(relevant_situation)
-            rendered_image = dataset._world.render().getArray()
+            # relevant_situation = Situation.from_representation(situation_spec[0])
+            # dataset.initialize_world(relevant_situation)
+            # rendered_image = dataset._world.render().getArray()
             #plt.figure()
             #plt.imshow(rendered_image)
             #plt.show()
