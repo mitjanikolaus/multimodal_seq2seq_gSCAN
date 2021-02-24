@@ -8,7 +8,7 @@ import numpy as np
 
 
 def evaluate(data_iterator: Iterator, model: nn.Module, lm_vocab:dict, max_decoding_steps: int, pad_idx: int, sos_idx: int,
-             eos_idx: int, max_examples_to_evaluate=None, dataset=None) -> Tuple[float, float, float]:
+             eos_idx: int, max_examples_to_evaluate=None, dataset=None) -> Tuple[float, float, float, float]:
     accuracies = []
     target_accuracies = []
     lm_perplexities = []
@@ -21,8 +21,8 @@ def evaluate(data_iterator: Iterator, model: nn.Module, lm_vocab:dict, max_decod
             exact_match += 1
         accuracies.append(accuracy)
         target_accuracies.append(aux_acc_target)
-        lm_perplexities.append(lm_perplexity)
+        lm_perplexities.append(lm_perplexity.item())
     return (float(np.mean(np.array(accuracies))), (exact_match / len(accuracies)) * 100,
-            float(np.mean(np.array(target_accuracies))), np.mean(lm_perplexities))
+            float(np.mean(np.array(target_accuracies))), float(np.mean(lm_perplexities)))
 
 
