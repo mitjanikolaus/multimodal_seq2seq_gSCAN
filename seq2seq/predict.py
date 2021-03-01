@@ -58,8 +58,8 @@ def predict_and_save(dataset: GroundedScanDataset, model: nn.Module, output_file
                                "position_accuracy":  position_accuracy})
         logger.info("Wrote predictions for {} examples.".format(i))
 
-        logger.info("\n\n\n\n\nAccuracy: ", np.mean([o["accuracy"] for o in output]))
-        logger.info("Exact Match Accuracy: ", np.mean([o["exact_match"] for o in output]))
+        logger.info(f"\n\n\n\n\nAccuracy: {np.mean([o['accuracy'] for o in output]):.3f}")
+        logger.info(f"Exact Match Accuracy: {np.mean([o['exact_match'] for o in output]):.3f}")
 
         json.dump(output, outfile, indent=4)
     return output_file_path
