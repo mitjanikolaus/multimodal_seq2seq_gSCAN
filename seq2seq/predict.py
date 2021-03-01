@@ -35,7 +35,7 @@ def predict_and_save(dataset: GroundedScanDataset, model: nn.Module, output_file
         with torch.no_grad():
             i = 0
             for (input_sequence, derivation_spec, situation_spec, output_sequence, target_sequence,
-                 attention_weights_commands, attention_weights_situations, position_accuracy) in predict(
+                 attention_weights_commands, attention_weights_situations, position_accuracy, lm_perplexity) in predict(
                     dataset.get_data_iterator(batch_size=1), model=model, max_decoding_steps=max_decoding_steps,
                     pad_idx=dataset.target_vocabulary.pad_idx, sos_idx=dataset.target_vocabulary.sos_idx,
                     eos_idx=dataset.target_vocabulary.eos_idx, lm_vocab=lm_vocab):
