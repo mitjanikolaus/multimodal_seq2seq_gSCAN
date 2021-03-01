@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 
 
 from seq2seq.helpers import sequence_accuracy
-from seq2seq.gSCAN_dataset import GroundedScanDataset
+from seq2seq.gSCAN_dataset import GroundedScanDataset, Vocabulary
 from GroundedScan.world import Situation
 
 import pdb
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 def predict_and_save(dataset: GroundedScanDataset, model: nn.Module, output_file_path: str, max_decoding_steps: int,
-                     max_testing_examples=None, **kwargs):
+                     lm_vocab:Vocabulary, max_testing_examples=None, **kwargs):
     """
     Predict all data in dataset with a model and write the predictions to output_file_path.
     :param dataset: a dataset with test examples
@@ -38,7 +38,7 @@ def predict_and_save(dataset: GroundedScanDataset, model: nn.Module, output_file
                  attention_weights_commands, attention_weights_situations, position_accuracy) in predict(
                     dataset.get_data_iterator(batch_size=1), model=model, max_decoding_steps=max_decoding_steps,
                     pad_idx=dataset.target_vocabulary.pad_idx, sos_idx=dataset.target_vocabulary.sos_idx,
-                    eos_idx=dataset.target_vocabulary.eos_idx):
+                    eos_idx=dataset.target_vocabulary.eos_idx, lm_vocab=lm_vocab):
                 i += 1
                 accuracy = sequence_accuracy(output_sequence, target_sequence[0].tolist()[1:-1])
                 input_str_sequence = dataset.array_to_sentence(input_sequence[0].tolist(), vocabulary="input")
@@ -59,7 +59,7 @@ def predict_and_save(dataset: GroundedScanDataset, model: nn.Module, output_file
     return output_file_path
 
 
-def predict(data_iterator: Iterator, model: nn.Module, lm_vocab: dict, max_decoding_steps: int, pad_idx: int, sos_idx: int,
+def predict(data_iterator: Iterator, model: nn.Module, lm_vocab: Vocabulary, max_decoding_steps: int, pad_idx: int, sos_idx: int,
             eos_idx: int, max_examples_to_evaluate=None, dataset=None) -> torch.Tensor:
     """
     Loop over all data in data_iterator and predict until <EOS> token is reached.

@@ -1,3 +1,4 @@
+from GroundedScan.vocabulary import Vocabulary
 from seq2seq.predict import predict
 from seq2seq.helpers import sequence_accuracy
 
@@ -7,7 +8,7 @@ from typing import Tuple
 import numpy as np
 
 
-def evaluate(data_iterator: Iterator, model: nn.Module, lm_vocab:dict, max_decoding_steps: int, pad_idx: int, sos_idx: int,
+def evaluate(data_iterator: Iterator, model: nn.Module, lm_vocab:Vocabulary, max_decoding_steps: int, pad_idx: int, sos_idx: int,
              eos_idx: int, max_examples_to_evaluate=None, dataset=None) -> Tuple[float, float, float, float]:
     accuracies = []
     target_accuracies = []
