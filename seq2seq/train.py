@@ -101,10 +101,10 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
             target_scores, target_position_scores, instruction_lm_scores = model(commands_input=input_batch, commands_lengths=input_lengths,
                                                           situations_input=situation_batch, target_batch=target_batch,
                                                           target_lengths=target_lengths)
-            loss = model.get_loss(target_scores, target_batch)
+            actions_loss = model.get_loss(target_scores, target_batch)
 
             lm_loss = model.get_lm_loss(instruction_lm_scores, input_batch)
-            loss += weight_lm_loss * lm_loss
+            loss = actions_loss + (weight_lm_loss * lm_loss)
 
             if auxiliary_task:
                 target_loss = model.get_auxiliary_loss(target_position_scores, target_positions)
@@ -127,8 +127,8 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
                 else:
                     auxiliary_accuracy_target = 0.
                 learning_rate = scheduler.get_lr()[0]
-                logger.info("Iteration %08d, loss %8.4f, lm_loss %8.4f, accuracy %5.2f, exact match %5.2f, learning_rate %.5f,"
-                            " aux. accuracy target pos %5.2f" % (training_iteration, loss, lm_loss, accuracy, exact_match,
+                logger.info("Iteration %08d, loss %8.4f, actions_loss %8.4f, lm_loss %8.4f, accuracy %5.2f, exact match %5.2f, learning_rate %.5f,"
+                            " aux. accuracy target pos %5.2f" % (training_iteration, loss, actions_loss, lm_loss, accuracy, exact_match,
                                                                  learning_rate, auxiliary_accuracy_target))
 
             # Evaluate on test set.

@@ -99,7 +99,7 @@ class Model(nn.Module):
         self.target_eos_idx = target_eos_idx
         self.target_pad_idx = target_pad_idx
         self.loss_criterion = nn.NLLLoss(ignore_index=target_pad_idx)
-        self.lm_loss_criterion = nn.CrossEntropyLoss(ignore_index=target_pad_idx, size_average=False)
+        self.lm_loss_criterion = nn.CrossEntropyLoss(ignore_index=target_pad_idx)
         self.tanh = nn.Tanh()
         self.output_directory = output_directory
         self.trained_iterations = 0
