@@ -133,11 +133,11 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
                                                                   training_set.target_vocabulary.eos_idx,
                                                                   max_decoding_steps)
 
-            logger.info(f"Teacher-generated instructions")
-            for sentence, action_sequence in zip(sampled_sentences, teacher_action_sequences):
-                print(" ".join([instruction_vocab.idx_to_word(wid) for wid in sentence if
-                            wid != training_set.target_vocabulary.pad_idx]))
-                print(" ".join([action_vocab.idx_to_word(a) for a in action_sequence if a != action_vocab.pad_idx]))
+            # logger.info(f"Teacher-generated instructions")
+            # for sentence, action_sequence in zip(sampled_sentences, teacher_action_sequences):
+            #     print(" ".join([instruction_vocab.idx_to_word(wid) for wid in sentence if
+            #                 wid != training_set.target_vocabulary.pad_idx]))
+            #     print(" ".join([action_vocab.idx_to_word(a) for a in action_sequence if a != action_vocab.pad_idx]))
 
             # Forward pass though learner using teacher-generated instruction and action targets.
             target_scores, target_position_scores, instruction_lm_scores = model_learner(commands_input=sampled_sentences, commands_lengths=sentence_lengths,
