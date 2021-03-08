@@ -121,40 +121,26 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
 
             instruction_vocab = training_set.get_vocabulary('input')
             action_vocab = training_set.get_vocabulary('target')
-            _, sampled_sentences, sentence_lengths = model_teacher.sample_instructions(instruction_vocab, encoded_situations,
+            _, sampled_sentences, sentence_lengths = model_teacher.sample_instructions(encoded_situations,
                                                                                        training_set.target_vocabulary.sos_idx,
                                                                                        training_set.target_vocabulary.eos_idx,
                                                                                        max_decoding_steps)
 
-            logger.info(f"Teacher-generated instructions")
-            # TODO: batching
-            teacher_action_sequences = []
-            teacher_action_sequence_lengths = []
-            for s, sentence in enumerate(sampled_sentences):
             # Generate target action sequences using teacher
-                teacher_action_sequence, _, _ = model_teacher.predict_actions_batch(sampled_sentences[s].unsqueeze(0),
-                                                                      sentence_lengths[s].unsqueeze(0),
-                                                                      situation_batch[s].unsqueeze(0),
-                                                                      training_set.target_vocabulary.sos_idx,
-                                                                      training_set.target_vocabulary.eos_idx,
-                                                                      max_decoding_steps)
-                teacher_action_sequence = [action_vocab.sos_idx] + teacher_action_sequence + [action_vocab.eos_idx]
+            _, teacher_action_sequences, teacher_action_sequence_lengths = model_teacher.predict_actions_batch(sampled_sentences,
+                                                                  sentence_lengths,
+                                                                  situation_batch,
+                                                                  training_set.target_vocabulary.sos_idx,
+                                                                  training_set.target_vocabulary.eos_idx,
+                                                                  max_decoding_steps)
 
+            logger.info(f"Teacher-generated instructions")
+            for sentence, action_sequence in zip(sampled_sentences, teacher_action_sequences):
                 print(" ".join([instruction_vocab.idx_to_word(wid) for wid in sentence if
                             wid != training_set.target_vocabulary.pad_idx]))
-                print(" ".join([action_vocab.idx_to_word(a) for a in teacher_action_sequence]))
+                print(" ".join([action_vocab.idx_to_word(a) for a in action_sequence if a != action_vocab.pad_idx]))
 
-                teacher_action_sequence = torch.tensor(teacher_action_sequence, device=device)
-                teacher_action_sequences.append(teacher_action_sequence)
-                teacher_action_sequence_lengths.append(len(teacher_action_sequence))
-
-            # Pad all action sequnces to equal length
-            teacher_action_sequences = pad_sequence(teacher_action_sequences, batch_first=True)
-
-            # make tensor of action sequence lengths
-            teacher_action_sequence_lengths = torch.tensor(teacher_action_sequence_lengths, device=device)
-
-            # Forward pass though learner using teacher generated instruction and action targets.
+            # Forward pass though learner using teacher-generated instruction and action targets.
             target_scores, target_position_scores, instruction_lm_scores = model_learner(commands_input=sampled_sentences, commands_lengths=sentence_lengths,
                                                           situations_input=situation_batch, target_batch=teacher_action_sequences,
                                                           target_lengths=teacher_action_sequence_lengths)

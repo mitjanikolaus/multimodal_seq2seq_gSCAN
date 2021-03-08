@@ -32,6 +32,9 @@ class Model(nn.Module):
                  simple_situation_representation: bool, attention_type: str, **kwargs):
         super(Model, self).__init__()
 
+        self.input_vocabulary_size = input_vocabulary_size
+        self.target_vocabulary_size = target_vocabulary_size
+
         self.simple_situation_representation = simple_situation_representation
         if not simple_situation_representation:
             logger.warning("DownSamplingConvolutionalNet not correctly implemented. Update or set "
@@ -285,7 +288,7 @@ class Model(nn.Module):
             shutil.copyfile(path, best_path)
         return path
 
-    def sample_instructions(self, vocab, cnn_output_batch, sos_idx, eos_idx, max_time_step=20):
+    def sample_instructions(self, cnn_output_batch, sos_idx, eos_idx, max_time_step=20):
         """generate one sample"""
 
         batch_size = cnn_output_batch.shape[0]
@@ -309,7 +312,7 @@ class Model(nn.Module):
 
         # tensor to store scores
         scores = torch.zeros(
-            (batch_size, max_time_step, vocab.size), device=device
+            (batch_size, max_time_step, self.input_vocabulary_size), device=device
         )
 
         # tensor to store produced sentences
@@ -374,45 +377,79 @@ class Model(nn.Module):
 
         return scores, sentences, decode_lengths
 
-    def predict_actions_batch(self, input_sequence, input_lengths, situation, sos_idx, eos_idx, max_decoding_steps):
+    def predict_actions_batch(self, input_sequences, input_lengths, situations, sos_idx, eos_idx, max_decoding_steps):
         self.eval()
-        encoded_input = self.encode_input(commands_input=input_sequence,
+
+        batch_size = input_sequences.shape[0]
+
+
+        encoded_inputs = self.encode_input(commands_input=input_sequences,
                                            commands_lengths=input_lengths,
-                                           situations_input=situation)
+                                           situations_input=situations)
 
         # For efficiency
         projected_keys_visual = self.visual_attention.key_layer(
-            encoded_input["encoded_situations"])  # [bsz, situation_length, dec_hidden_dim]
+            encoded_inputs["encoded_situations"])  # [bsz, situation_length, dec_hidden_dim]
         projected_keys_textual = self.textual_attention.key_layer(
-            encoded_input["encoded_commands"]["encoder_outputs"])  # [max_input_length, bsz, dec_hidden_dim]
+            encoded_inputs["encoded_commands"]["encoder_outputs"])  # [max_input_length, bsz, dec_hidden_dim]
 
-        # Iteratively decode the output.
-        output_sequence = []
-        contexts_situation = []
+        decode_lengths = torch.full(
+            (batch_size,),
+            max_decoding_steps,
+            dtype=torch.int64,
+            device=device,
+        )
+
+        # tensor to store scores
+        scores = torch.zeros(
+            (batch_size, max_decoding_steps, self.target_vocabulary_size), device=device
+        )
+
+        # tensor to store produced actions
+        actions = torch.zeros(
+            (batch_size, max_decoding_steps), dtype=torch.int64, device=device
+        )
+
+        # the first token is always <SOS>
+        actions[:, 0] = torch.full(
+            (batch_size,), sos_idx, dtype=torch.int64, device=device
+        )
+
         hidden = self.attention_decoder.initialize_hidden(
-            self.tanh(self.enc_hidden_to_dec_hidden(encoded_input["hidden_states"])))
-        token = torch.tensor([sos_idx], dtype=torch.long, device=device)
-        decoding_iteration = 0
-        attention_weights_commands = []
-        attention_weights_situations = []
-        while token != eos_idx and decoding_iteration <= max_decoding_steps:
-            (output, hidden, context_situation, attention_weights_command,
-             attention_weights_situation) = self.decode_input(
-                target_token=token, hidden=hidden, encoder_outputs=projected_keys_textual,
+            self.tanh(self.enc_hidden_to_dec_hidden(encoded_inputs["hidden_states"])))
+
+        for t in range(max_decoding_steps):
+            ind_end_token = (
+                torch.nonzero(actions[:, t] == eos_idx)
+                    .view(-1)
+                    .tolist()
+            )
+
+            # Update the decode lengths accordingly
+            decode_lengths[ind_end_token] = torch.min(
+                decode_lengths[ind_end_token],
+                torch.full_like(decode_lengths[ind_end_token], t, device=device),
+            )
+
+            # Check if all sequences are finished:
+            indices_incomplete_sequences = torch.nonzero(decode_lengths > t).view(-1)
+            if len(indices_incomplete_sequences) == 0:
+                break
+
+            (output, hidden, context_situation, attention_weights_command, attention_weights_situation) = self.decode_input(
+                target_token=actions[:, t], hidden=hidden, encoder_outputs=projected_keys_textual,
                 input_lengths=input_lengths, encoded_situations=projected_keys_visual)
             output = F.log_softmax(output, dim=-1)
-            token = output.max(dim=-1)[1]
-            output_sequence.append(token.data[0].item())
-            attention_weights_commands.append(attention_weights_command.tolist())
-            attention_weights_situations.append(attention_weights_situation.tolist())
-            contexts_situation.append(context_situation.unsqueeze(1))
-            decoding_iteration += 1
+            output_argmax = output.argmax(dim=-1)
 
-        if output_sequence[-1] == eos_idx:
-            output_sequence.pop()
-            attention_weights_commands.pop()
-            attention_weights_situations.pop()
-        if self.auxiliary_task:
-            raise NotImplementedError()
+            scores[indices_incomplete_sequences, t, :] = output[indices_incomplete_sequences]
+            actions[indices_incomplete_sequences, t + 1] = output_argmax[indices_incomplete_sequences]
 
-        return (output_sequence, attention_weights_commands, attention_weights_situations)
+        # Trim tensor of produced sentences to max_sequence length
+        max_sentence_length = decode_lengths.max()
+        actions = actions[:, :max_sentence_length + 1]
+
+        decode_lengths = decode_lengths + 1
+
+        return scores, actions, decode_lengths
+
