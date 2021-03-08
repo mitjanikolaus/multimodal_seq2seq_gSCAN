@@ -1,10 +1,15 @@
 import logging
 import torch
+import os
 
+from torch.nn.utils.rnn import pad_sequence
 from torch.optim.lr_scheduler import LambdaLR
 
-from helpers import log_parameters
-from evaluate import evaluate
+from seq2seq.model import Model
+from seq2seq.gSCAN_dataset import GroundedScanDataset
+from seq2seq.helpers import log_parameters
+from seq2seq.evaluate import evaluate
+
 
 
 logger = logging.getLogger(__name__)
