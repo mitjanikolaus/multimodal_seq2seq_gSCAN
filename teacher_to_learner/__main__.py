@@ -109,8 +109,7 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
 
         # Shuffle the dataset and loop over it.
         training_set.shuffle_data()
-        for (input_batch, input_lengths, _, situation_batch, _, target_batch,
-             target_lengths, agent_positions, target_positions, _) in training_set.get_data_iterator(
+        for (input_batch, input_lengths, _, situation_batch, _, _, _, _, _, _) in training_set.get_data_iterator(
                 batch_size=training_batch_size):
             is_best = False
             model_learner.train()
@@ -151,7 +150,7 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
             loss = actions_loss + (weight_lm_loss * lm_loss)
 
             if auxiliary_task:
-                target_loss = model_learner.get_auxiliary_loss(target_position_scores, target_positions)
+                raise NotImplementedError()
             else:
                 target_loss = 0
             loss += weight_target_loss * target_loss
@@ -165,9 +164,9 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
 
             # Print current metrics.
             if training_iteration % print_every == 0:
-                accuracy, exact_match = model_learner.get_metrics(target_scores, target_batch)
+                accuracy, exact_match = model_learner.get_metrics(target_scores, teacher_action_sequences)
                 if auxiliary_task:
-                    auxiliary_accuracy_target = model_learner.get_auxiliary_accuracy(target_position_scores, target_positions)
+                    raise NotImplementedError()
                 else:
                     auxiliary_accuracy_target = 0.
                 learning_rate = scheduler.get_lr()[0]
