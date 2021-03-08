@@ -197,6 +197,12 @@ class Model(nn.Module):
         return {"encoded_situations": encoded_image, "encoded_commands": encoder_outputs, "hidden_states": hidden,
                 "instruction_lm_logits": instruction_lm_logits}
 
+    def encode_situations(self, situations_input: torch.Tensor):
+        if not self.simple_situation_representation:
+            situations_input = self.downsample_image(situations_input)
+        encoded_situations = self.situation_encoder(situations_input)
+        return encoded_situations
+
     def decode_input(self, target_token: torch.LongTensor, hidden: Tuple[torch.Tensor, torch.Tensor],
                      encoder_outputs: torch.Tensor, input_lengths: List[int],
                      encoded_situations: torch.Tensor) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor],
@@ -245,7 +251,7 @@ class Model(nn.Module):
             self.best_iteration = self.trained_iterations
 
     def load_model(self, path_to_checkpoint: str) -> dict:
-        checkpoint = torch.load(path_to_checkpoint)
+        checkpoint = torch.load(path_to_checkpoint, map_location=device)
         self.trained_iterations = checkpoint["iteration"]
         self.best_iteration = checkpoint["best_iteration"]
         self.load_state_dict(checkpoint["state_dict"])
@@ -279,49 +285,134 @@ class Model(nn.Module):
             shutil.copyfile(path, best_path)
         return path
 
-    def sample(self, vocab, cnn_output_batch, sos_idx, eos_idx, max_time_step=20):
+    def sample_instructions(self, vocab, cnn_output_batch, sos_idx, eos_idx, max_time_step=20):
         """generate one sample"""
-        sample_words = [sos_idx]
+
+        batch_size = cnn_output_batch.shape[0]
 
         ## preproc. visual batch input
         # max/mean pool visual kernel
-        pooled_cnn_output_batch= torch.mean(cnn_output_batch, dim=1)
+        pooled_cnn_output_batch = torch.mean(cnn_output_batch, dim=1)
 
-        ## cnn fc code
-        #_, image_dim, num_channels = cnn_output_batch.shape
-        #cnn_output_batch = cnn_output_batch.reshape((-1, int(sqrt(image_dim)), int(sqrt(image_dim)), num_channels))
-        #cnn_output_batch = cnn_output_batch.transpose(1, 3)
-
-        # transform visual featueres to lstm. hidden space
+        # transform visual features to lstm. hidden space
         visual_embedding = self.encoder.visual_transform(pooled_cnn_output_batch)  # batch_size x embedding_dim
-
-        # cnn produces two extra final dims
-        #visual_embedding = visual_embedding.squeeze(-1)
-        #visual_embedding = visual_embedding.squeeze(-1)
 
         # unsqueeze first dim because h_0 expects num_layers * num_directions, batch, hidden_size
         visual_embedding = visual_embedding.unsqueeze(0)
 
+        decode_lengths = torch.full(
+            (batch_size,),
+            max_time_step,
+            dtype=torch.int64,
+            device=device,
+        )
+
+        # tensor to store scores
+        scores = torch.zeros(
+            (batch_size, max_time_step, vocab.size), device=device
+        )
+
+        # tensor to store produced sentences
+        sentences = torch.zeros(
+            (batch_size, max_time_step), dtype=torch.int64, device=device
+        )
+
+        # the first token is always <SOS>
+        sentences[:, 0] = torch.full(
+            (batch_size,), sos_idx, dtype=torch.int64, device=device
+        )
 
         # use it to init lstm
         h_tm1 = visual_embedding
         first_step = True
         for t in range(max_time_step):
-            x_tm1_embed = self.encoder.embedding(torch.tensor([sample_words[-1]], device=device, dtype=torch.long))
+            if not first_step:
+                ind_end_token = (
+                    torch.nonzero(sentences[:, t] == eos_idx)
+                        .view(-1)
+                        .tolist()
+                )
+
+                # Update the decode lengths accordingly
+                decode_lengths[ind_end_token] = torch.min(
+                    decode_lengths[ind_end_token],
+                    torch.full_like(decode_lengths[ind_end_token], t, device=device),
+                )
+
+            indices_incomplete_sequences = torch.nonzero(decode_lengths > t).view(-1)
+            # Check if all sequences are finished:
+            if len(indices_incomplete_sequences) == 0:
+                break
+
+            x_tm1_embed = self.encoder.embedding(sentences[:, t])
             x_tm1_embed = x_tm1_embed.unsqueeze(0)
             if first_step:
                 h_t, (last_state, last_cell) = self.encoder.lstm(x_tm1_embed, (h_tm1, h_tm1))
                 first_step = False
             else:
                 h_t, (last_state, last_cell) = self.encoder.lstm(x_tm1_embed, h_tm1)
-            h_t = self.encoder.dropout(h_t.view(-1))
-            p_t = F.softmax(self.encoder.lm_out(h_t), dim=-1)
-            x_t_wid = torch.multinomial(p_t, num_samples=1).data[0]
-            x_t = vocab.idx_to_word(x_t_wid.item())
 
-            if x_t_wid.item() == eos_idx or t == max_time_step - 1:
-                return [vocab.idx_to_word(wid) for wid in sample_words[1:]]
-            else:
-                sample_words.append(x_t_wid.item())
+            # discard time dimension
+            h_t = h_t[0]
+
+            h_t = self.encoder.dropout(h_t)
+            p_t = F.softmax(self.encoder.lm_out(h_t), dim=-1)
+
+            # TODO use greedy decoding?
+            for i in indices_incomplete_sequences:
+                scores[i, t, :] = p_t[i]
+                prev_words = torch.multinomial(p_t[i], 1)
+                sentences[i, t+1] = prev_words
 
             h_tm1 = last_state, last_cell
+
+        # Trim tensor of produced sentences to max_sequence length
+        max_sentence_length = decode_lengths.max()
+        sentences = sentences[:, :max_sentence_length + 1]
+
+        decode_lengths = decode_lengths + 1
+
+        return scores, sentences, decode_lengths
+
+    def predict_actions_batch(self, input_sequence, input_lengths, situation, sos_idx, eos_idx, max_decoding_steps):
+        self.eval()
+        encoded_input = self.encode_input(commands_input=input_sequence,
+                                           commands_lengths=input_lengths,
+                                           situations_input=situation)
+
+        # For efficiency
+        projected_keys_visual = self.visual_attention.key_layer(
+            encoded_input["encoded_situations"])  # [bsz, situation_length, dec_hidden_dim]
+        projected_keys_textual = self.textual_attention.key_layer(
+            encoded_input["encoded_commands"]["encoder_outputs"])  # [max_input_length, bsz, dec_hidden_dim]
+
+        # Iteratively decode the output.
+        output_sequence = []
+        contexts_situation = []
+        hidden = self.attention_decoder.initialize_hidden(
+            self.tanh(self.enc_hidden_to_dec_hidden(encoded_input["hidden_states"])))
+        token = torch.tensor([sos_idx], dtype=torch.long, device=device)
+        decoding_iteration = 0
+        attention_weights_commands = []
+        attention_weights_situations = []
+        while token != eos_idx and decoding_iteration <= max_decoding_steps:
+            (output, hidden, context_situation, attention_weights_command,
+             attention_weights_situation) = self.decode_input(
+                target_token=token, hidden=hidden, encoder_outputs=projected_keys_textual,
+                input_lengths=input_lengths, encoded_situations=projected_keys_visual)
+            output = F.log_softmax(output, dim=-1)
+            token = output.max(dim=-1)[1]
+            output_sequence.append(token.data[0].item())
+            attention_weights_commands.append(attention_weights_command.tolist())
+            attention_weights_situations.append(attention_weights_situation.tolist())
+            contexts_situation.append(context_situation.unsqueeze(1))
+            decoding_iteration += 1
+
+        if output_sequence[-1] == eos_idx:
+            output_sequence.pop()
+            attention_weights_commands.pop()
+            attention_weights_situations.pop()
+        if self.auxiliary_task:
+            raise NotImplementedError()
+
+        return (output_sequence, attention_weights_commands, attention_weights_situations)

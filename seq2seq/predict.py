@@ -104,25 +104,24 @@ def predict(data_iterator: Iterator, model: nn.Module, lm_vocab: Vocabulary, max
         loss = F.cross_entropy(target_scores_2d, targets.view(-1))
         lm_perplexity = torch.exp(loss)
 
-
         # sample 10 sentences
-        encoded_sitiuation = encoded_input['encoded_situations']
-        # unsqueze for batch size
-        sampled_sentence = model.sample(lm_vocab, encoded_sitiuation, sos_idx, eos_idx)
-        # get original sentence
-        original_sent = [lm_vocab.idx_to_word(wid) for wid in input_sequence[0, 1:-1].tolist()]
-        if i % 100 == 0:
-            print(situation_spec)
-            # relevant_situation = Situation.from_representation(situation_spec[0])
-            # dataset.initialize_world(relevant_situation)
-            # rendered_image = dataset._world.render().getArray()
-            #plt.figure()
-            #plt.imshow(rendered_image)
-            #plt.show()
-            logger.info("original sent # %s" % (i))
-            logger.info(' '.join(original_sent))
-            logger.info("Sampled sent # %s" % (i))
-            logger.info(' '.join(sampled_sentence))
+        # encoded_sitiuation = encoded_input['encoded_situations']
+        # # unsqueze for batch size
+        # sampled_sentence = model.sample(lm_vocab, encoded_sitiuation, sos_idx, eos_idx)
+        # # get original sentence
+        # original_sent = [lm_vocab.idx_to_word(wid) for wid in input_sequence[0, 1:-1].tolist()]
+        # if i % 100 == 0:
+        #     print(situation_spec)
+        #     # relevant_situation = Situation.from_representation(situation_spec[0])
+        #     # dataset.initialize_world(relevant_situation)
+        #     # rendered_image = dataset._world.render().getArray()
+        #     #plt.figure()
+        #     #plt.imshow(rendered_image)
+        #     #plt.show()
+        #     logger.info("original sent # %s" % (i))
+        #     logger.info(' '.join(original_sent))
+        #     logger.info("Sampled sent # %s" % (i))
+        #     logger.info(' '.join(sampled_sentence))
 
         # For efficiency
         projected_keys_visual = model.visual_attention.key_layer(
