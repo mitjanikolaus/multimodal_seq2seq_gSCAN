@@ -135,7 +135,8 @@ def main(flags):
                                            input_vocabulary_file=flags["input_vocab_path"],
                                            target_vocabulary_file=flags["target_vocab_path"], generate_vocabulary=False,
                                            k=flags["k"])
-            test_set.read_dataset(max_examples=None,
+            test_set.shuffle_data()
+            test_set.read_dataset(max_examples=flags["max_testing_examples"],
                                   simple_situation_representation=flags["simple_situation_representation"])
             logger.info("Done Loading {} dataset split.".format(flags["split"]))
             logger.info("  Loaded {} examples.".format(test_set.num_examples))

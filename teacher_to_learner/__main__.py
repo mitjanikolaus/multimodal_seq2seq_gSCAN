@@ -335,47 +335,7 @@ def main(flags):
     if flags["mode"] == "train":
         train(data_path=data_path, **flags)
     elif flags["mode"] == "test":
-        assert os.path.exists(os.path.join(flags["data_directory"], flags["input_vocab_path"])) and os.path.exists(
-            os.path.join(flags["data_directory"], flags["target_vocab_path"])), \
-            "No vocabs found at {} and {}".format(flags["input_vocab_path"], flags["target_vocab_path"])
-        splits = flags["splits"].split(",")
-        for split in splits:
-            logger.info("Loading {} dataset split...".format(split))
-            test_set = GroundedScanDataset(data_path, flags["data_directory"], split=split,
-                                           input_vocabulary_file=flags["input_vocab_path"],
-                                           target_vocabulary_file=flags["target_vocab_path"], generate_vocabulary=False,
-                                           k=flags["k"])
-            test_set.read_dataset(max_examples=None,
-                                  simple_situation_representation=flags["simple_situation_representation"])
-            logger.info("Done Loading {} dataset split.".format(flags["split"]))
-            logger.info("  Loaded {} examples.".format(test_set.num_examples))
-            logger.info("  Input vocabulary size: {}".format(test_set.input_vocabulary_size))
-            logger.info("  Most common input words: {}".format(test_set.input_vocabulary.most_common(5)))
-            logger.info("  Output vocabulary size: {}".format(test_set.target_vocabulary_size))
-            logger.info("  Most common target words: {}".format(test_set.target_vocabulary.most_common(5)))
-
-            model = Model(input_vocabulary_size=test_set.input_vocabulary_size,
-                                  target_vocabulary_size=test_set.target_vocabulary_size,
-                                  num_cnn_channels=test_set.image_channels,
-                                  input_padding_idx=test_set.input_vocabulary.pad_idx,
-                                  target_pad_idx=test_set.target_vocabulary.pad_idx,
-                                  target_eos_idx=test_set.target_vocabulary.eos_idx,
-                                  **flags)
-            model = model.cuda() if use_cuda else model
-
-            # Load model and vocabularies if resuming.
-            assert os.path.isfile(flags["resume_from_file_learner"]), "No checkpoint found at {}".format(flags["resume_from_file_learner"])
-
-            logger.info("Loading checkpoint from file at '{}'".format(flags["resume_from_file_learner"]))
-            model.load_model(flags["resume_from_file_learner"])
-
-            start_iteration = model.trained_iterations
-            logger.info("Loaded learner checkpoint '{}' (iter {})".format(flags["resume_from_file_learner"], start_iteration))
-            output_file_name = "_".join([split, flags["output_file_name"]])
-            output_file_path = os.path.join(flags["output_directory"], output_file_name)
-            instruction_vocab = test_set.get_vocabulary('input')
-            output_file = predict_and_save(dataset=test_set, model=model, output_file_path=output_file_path, lm_vocab=instruction_vocab, **flags)
-            logger.info("Saved predictions to {}".format(output_file))
+        raise NotImplementedError()
     elif flags["mode"] == "predict":
         raise NotImplementedError()
     else:
