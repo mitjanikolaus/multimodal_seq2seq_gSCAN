@@ -195,7 +195,9 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
                         best_accuracy = accuracy
                         best_exact_match = exact_match
                         model_learner.update_state(accuracy=accuracy, exact_match=exact_match, is_best=is_best)
-                    file_name = "checkpoint.pth.tar".format(str(training_iteration))
+                    file_name = f"checkpoint_iter_{str(training_iteration)}.pth.tar"
+                    model_learner.save_checkpoint(file_name=file_name, is_best=False,
+                                                  optimizer_state_dict=optimizer.state_dict())
                     if is_best:
                         model_learner.save_checkpoint(file_name=file_name, is_best=is_best,
                                               optimizer_state_dict=optimizer.state_dict())
