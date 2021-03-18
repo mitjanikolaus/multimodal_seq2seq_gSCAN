@@ -169,7 +169,7 @@ def main(flags):
             logger.info("Saved predictions to {}".format(output_file))
         logger.info("\n\n\nAccuracies overview:")
         for split, acc in exact_match_accs.items():
-            logger.info(f"{split}: {acc}")
+            logger.info(f"{split}: {acc:.2f}")
     elif flags["mode"] == "predict":
         raise NotImplementedError()
     else:
