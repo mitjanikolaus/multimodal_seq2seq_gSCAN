@@ -129,6 +129,7 @@ def main(flags):
             os.path.join(flags["data_directory"], flags["target_vocab_path"])), \
             "No vocabs found at {} and {}".format(flags["input_vocab_path"], flags["target_vocab_path"])
         splits = flags["splits"].split(",")
+        exact_match_accs = {}
         for split in splits:
             logger.info("Loading {} dataset split...".format(split))
             test_set = GroundedScanDataset(data_path, flags["data_directory"], split=split,
@@ -162,9 +163,13 @@ def main(flags):
             output_file_name = "_".join([split, flags["output_file_name"]])
             output_file_path = os.path.join(flags["output_directory"], output_file_name)
             instruction_vocab = test_set.get_vocabulary('input')
-            output_file = predict_and_save(dataset=test_set, model=model, output_file_path=output_file_path,
+            output_file, exact_match_acc = predict_and_save(dataset=test_set, model=model, output_file_path=output_file_path,
                                            lm_vocab=instruction_vocab, **flags)
+            exact_match_acc[split] = exact_match_acc
             logger.info("Saved predictions to {}".format(output_file))
+        logger.info("\n\n\nAccuracies overview:")
+        for split, acc in exact_match_accs.items():
+            logger.info(f"{split}: {acc}")
     elif flags["mode"] == "predict":
         raise NotImplementedError()
     else:
