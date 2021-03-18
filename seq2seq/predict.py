@@ -36,12 +36,16 @@ def predict_and_save(dataset: GroundedScanDataset, model: nn.Module, output_file
         output = []
         with torch.no_grad():
             i = 0
+            batch_size = 1
             for (input_sequence, derivation_spec, situation_spec, output_sequence, target_sequence,
                  attention_weights_commands, attention_weights_situations, position_accuracy, lm_perplexity) in predict(
-                    dataset.get_data_iterator(batch_size=1), model=model, max_decoding_steps=max_decoding_steps,
+                    dataset.get_data_iterator(batch_size=batch_size), model=model, max_decoding_steps=max_decoding_steps,
                     pad_idx=dataset.target_vocabulary.pad_idx, sos_idx=dataset.target_vocabulary.sos_idx,
                     eos_idx=dataset.target_vocabulary.eos_idx, lm_vocab=lm_vocab):
                 i += 1
+                if max_testing_examples:
+                    if i*batch_size > max_testing_examples:
+                        break
                 accuracy = sequence_accuracy(output_sequence, target_sequence[0].tolist()[1:-1])
                 input_str_sequence = dataset.array_to_sentence(input_sequence[0].tolist(), vocabulary="input")
                 input_str_sequence = input_str_sequence[1:-1]  # Get rid of <SOS> and <EOS>

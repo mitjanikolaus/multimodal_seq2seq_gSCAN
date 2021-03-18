@@ -135,9 +135,8 @@ def main(flags):
                                            input_vocabulary_file=flags["input_vocab_path"],
                                            target_vocabulary_file=flags["target_vocab_path"], generate_vocabulary=False,
                                            k=flags["k"])
+            test_set.read_dataset(simple_situation_representation=flags["simple_situation_representation"])
             test_set.shuffle_data()
-            test_set.read_dataset(max_examples=flags["max_testing_examples"],
-                                  simple_situation_representation=flags["simple_situation_representation"])
             logger.info("Done Loading {} dataset split.".format(flags["split"]))
             logger.info("  Loaded {} examples.".format(test_set.num_examples))
             logger.info("  Input vocabulary size: {}".format(test_set.input_vocabulary_size))
@@ -163,7 +162,9 @@ def main(flags):
             output_file_name = "_".join([split, flags["output_file_name"]])
             output_file_path = os.path.join(flags["output_directory"], output_file_name)
             instruction_vocab = test_set.get_vocabulary('input')
-            output_file = predict_and_save(dataset=test_set, model=model, output_file_path=output_file_path, lm_vocab=instruction_vocab, **flags)
+            output_file = predict_and_save(dataset=test_set, model=model, output_file_path=output_file_path,
+                                           lm_vocab=instruction_vocab,
+                                           max_testing_examples=flags["max_testing_examples"], **flags)
             logger.info("Saved predictions to {}".format(output_file))
     elif flags["mode"] == "predict":
         raise NotImplementedError()
