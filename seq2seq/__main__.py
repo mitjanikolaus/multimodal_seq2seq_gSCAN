@@ -165,7 +165,7 @@ def main(flags):
             instruction_vocab = test_set.get_vocabulary('input')
             output_file, exact_match_acc = predict_and_save(dataset=test_set, model=model, output_file_path=output_file_path,
                                            lm_vocab=instruction_vocab, **flags)
-            exact_match_acc[split] = exact_match_acc
+            exact_match_acc[str(split)] = exact_match_acc
             logger.info("Saved predictions to {}".format(output_file))
         logger.info("\n\n\nAccuracies overview:")
         for split, acc in exact_match_accs.items():
