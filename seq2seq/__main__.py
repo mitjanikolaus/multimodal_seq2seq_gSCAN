@@ -163,8 +163,7 @@ def main(flags):
             output_file_path = os.path.join(flags["output_directory"], output_file_name)
             instruction_vocab = test_set.get_vocabulary('input')
             output_file = predict_and_save(dataset=test_set, model=model, output_file_path=output_file_path,
-                                           lm_vocab=instruction_vocab,
-                                           max_testing_examples=flags["max_testing_examples"], **flags)
+                                           lm_vocab=instruction_vocab, **flags)
             logger.info("Saved predictions to {}".format(output_file))
     elif flags["mode"] == "predict":
         raise NotImplementedError()
