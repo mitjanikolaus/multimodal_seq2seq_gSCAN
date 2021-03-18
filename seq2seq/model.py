@@ -418,7 +418,7 @@ class Model(nn.Module):
         hidden = self.attention_decoder.initialize_hidden(
             self.tanh(self.enc_hidden_to_dec_hidden(encoded_inputs["hidden_states"])))
 
-        for t in range(max_decoding_steps):
+        for t in range(max_decoding_steps-1):
             ind_end_token = (
                 torch.nonzero(actions[:, t] == eos_idx)
                     .view(-1)
