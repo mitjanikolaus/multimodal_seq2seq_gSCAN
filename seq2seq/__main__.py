@@ -1,4 +1,5 @@
 import argparse
+import json
 import logging
 import os
 import torch
@@ -170,6 +171,10 @@ def main(flags):
         logger.info("\n\n\nAccuracies overview:")
         for split, acc in exact_match_accs.items():
             logger.info(f"{split}: {acc:.2f}")
+
+        accuracies_file = flags["resume_from_file"].replace(".pth.tar", "_accuracies.json")
+        json.dump(exact_match_accs, open(accuracies_file, mode='w'))
+
     elif flags["mode"] == "predict":
         raise NotImplementedError()
     else:
