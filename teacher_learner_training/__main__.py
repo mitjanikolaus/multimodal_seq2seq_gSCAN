@@ -397,15 +397,13 @@ def main(flags):
                 test_set = GroundedScanDataset(data_path, flags["data_directory"], split=split,
                                                input_vocabulary_file=flags["input_vocab_path"],
                                                target_vocabulary_file=flags["target_vocab_path"], generate_vocabulary=False,
-                                               k=flags["k"])
+                                               k=flags["k"], log_stats=False)
                 test_set.read_dataset(max_examples=flags["max_testing_examples"],
                                       simple_situation_representation=flags["simple_situation_representation"])
                 logger.info("Done Loading {} dataset split.".format(flags["split"]))
                 logger.info("  Loaded {} examples.".format(test_set.num_examples))
-                logger.info("  Input vocabulary size: {}".format(test_set.input_vocabulary_size))
-                logger.info("  Most common input words: {}".format(test_set.input_vocabulary.most_common(5)))
-                logger.info("  Output vocabulary size: {}".format(test_set.target_vocabulary_size))
-                logger.info("  Most common target words: {}".format(test_set.target_vocabulary.most_common(5)))
+                # logger.info("  Input vocabulary size: {}".format(test_set.input_vocabulary_size))
+                # logger.info("  Output vocabulary size: {}".format(test_set.target_vocabulary_size))
 
                 model = Model(input_vocabulary_size=test_set.input_vocabulary_size,
                               target_vocabulary_size=test_set.target_vocabulary_size,

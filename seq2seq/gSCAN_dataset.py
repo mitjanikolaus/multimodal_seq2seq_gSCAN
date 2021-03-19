@@ -103,7 +103,7 @@ class GroundedScanDataset(object):
     """
 
     def __init__(self, path_to_data: str, save_directory: str, k: int, split="train", input_vocabulary_file="",
-                 target_vocabulary_file="", generate_vocabulary=False):
+                 target_vocabulary_file="", generate_vocabulary=False, log_stats=True):
         assert os.path.exists(path_to_data), "Trying to read a gSCAN dataset from a non-existing file {}.".format(
             path_to_data)
         if not generate_vocabulary:
@@ -113,17 +113,19 @@ class GroundedScanDataset(object):
         if split == "test" and generate_vocabulary:
             logger.warning("WARNING: generating a vocabulary from the test set.")
         self.dataset = GroundedScan.load_dataset_from_file(path_to_data, save_directory=save_directory, k=k)
-        if self.dataset._data_statistics.get("adverb_1"):
-            logger.info("Verb-adverb combinations in training set: ")
-            for adverb, items in self.dataset._data_statistics["train"]["verb_adverb_combinations"].items():
-                logger.info("Verbs for adverb: {}".format(adverb))
-                for key, count in items.items():
-                    logger.info("   {}: {} occurrences.".format(key, count))
-            logger.info("Verb-adverb combinations in dev set: ")
-            for adverb, items in self.dataset._data_statistics["dev"]["verb_adverb_combinations"].items():
-                logger.info("Verbs for adverb: {}".format(adverb))
-                for key, count in items.items():
-                    logger.info("   {}: {} occurrences.".format(key, count))
+
+        if log_stats:
+            if self.dataset._data_statistics.get("adverb_1"):
+                logger.info("Verb-adverb combinations in training set: ")
+                for adverb, items in self.dataset._data_statistics["train"]["verb_adverb_combinations"].items():
+                    logger.info("Verbs for adverb: {}".format(adverb))
+                    for key, count in items.items():
+                        logger.info("   {}: {} occurrences.".format(key, count))
+                logger.info("Verb-adverb combinations in dev set: ")
+                for adverb, items in self.dataset._data_statistics["dev"]["verb_adverb_combinations"].items():
+                    logger.info("Verbs for adverb: {}".format(adverb))
+                    for key, count in items.items():
+                        logger.info("   {}: {} occurrences.".format(key, count))
         self.image_dimensions = self.dataset.situation_image_dimension
         self.image_channels = 3
         self.split = split
