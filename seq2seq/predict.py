@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 def predict_and_save(dataset: GroundedScanDataset, model: nn.Module, output_file_path: str, max_decoding_steps: int,
-                     lm_vocab:Vocabulary, max_testing_examples=None, **kwargs):
+                     lm_vocab:Vocabulary, max_testing_examples=None, save_predictions=True, **kwargs):
     """
     Predict all data in dataset with a model and write the predictions to output_file_path.
     :param dataset: a dataset with test examples
@@ -32,41 +32,43 @@ def predict_and_save(dataset: GroundedScanDataset, model: nn.Module, output_file
     """
     cfg = locals().copy()
 
-    with open(output_file_path, mode='w') as outfile:
-        output = []
-        with torch.no_grad():
-            i = 0
-            batch_size = 1
-            for (input_sequence, derivation_spec, situation_spec, output_sequence, target_sequence,
-                 attention_weights_commands, attention_weights_situations, position_accuracy, lm_perplexity) in predict(
-                    dataset.get_data_iterator(batch_size=batch_size), model=model, max_decoding_steps=max_decoding_steps,
-                    pad_idx=dataset.target_vocabulary.pad_idx, sos_idx=dataset.target_vocabulary.sos_idx,
-                    eos_idx=dataset.target_vocabulary.eos_idx, lm_vocab=lm_vocab):
-                i += 1
-                if max_testing_examples:
-                    if i*batch_size > max_testing_examples:
-                        break
-                accuracy = sequence_accuracy(output_sequence, target_sequence[0].tolist()[1:-1])
-                input_str_sequence = dataset.array_to_sentence(input_sequence[0].tolist(), vocabulary="input")
-                input_str_sequence = input_str_sequence[1:-1]  # Get rid of <SOS> and <EOS>
-                target_str_sequence = dataset.array_to_sentence(target_sequence[0].tolist(), vocabulary="target")
-                target_str_sequence = target_str_sequence[1:-1]  # Get rid of <SOS> and <EOS>
-                output_str_sequence = dataset.array_to_sentence(output_sequence, vocabulary="target")
-                output.append({"input": input_str_sequence, "prediction": output_str_sequence,
-                               "derivation": derivation_spec,
-                               "target": target_str_sequence, "situation": situation_spec,
-                               "attention_weights_input": attention_weights_commands,
-                               "attention_weights_situation": attention_weights_situations,
-                               "accuracy": accuracy,
-                               "exact_match": True if accuracy == 100 else False,
-                               "position_accuracy":  position_accuracy})
-        logger.info("Wrote predictions for {} examples.".format(i))
+    output = []
+    with torch.no_grad():
+        i = 0
+        batch_size = 1
+        for (input_sequence, derivation_spec, situation_spec, output_sequence, target_sequence,
+             attention_weights_commands, attention_weights_situations, position_accuracy, lm_perplexity) in predict(
+                dataset.get_data_iterator(batch_size=batch_size), model=model, max_decoding_steps=max_decoding_steps,
+                pad_idx=dataset.target_vocabulary.pad_idx, sos_idx=dataset.target_vocabulary.sos_idx,
+                eos_idx=dataset.target_vocabulary.eos_idx, lm_vocab=lm_vocab):
+            i += 1
+            if max_testing_examples:
+                if i*batch_size > max_testing_examples:
+                    break
+            accuracy = sequence_accuracy(output_sequence, target_sequence[0].tolist()[1:-1])
+            input_str_sequence = dataset.array_to_sentence(input_sequence[0].tolist(), vocabulary="input")
+            input_str_sequence = input_str_sequence[1:-1]  # Get rid of <SOS> and <EOS>
+            target_str_sequence = dataset.array_to_sentence(target_sequence[0].tolist(), vocabulary="target")
+            target_str_sequence = target_str_sequence[1:-1]  # Get rid of <SOS> and <EOS>
+            output_str_sequence = dataset.array_to_sentence(output_sequence, vocabulary="target")
+            output.append({"input": input_str_sequence, "prediction": output_str_sequence,
+                           "derivation": derivation_spec,
+                           "target": target_str_sequence, "situation": situation_spec,
+                           "attention_weights_input": attention_weights_commands,
+                           "attention_weights_situation": attention_weights_situations,
+                           "accuracy": accuracy,
+                           "exact_match": True if accuracy == 100 else False,
+                           "position_accuracy":  position_accuracy})
+    logger.info("Wrote predictions for {} examples.".format(i))
 
-        logger.info(f"\n\n\n\n\nAccuracy: {np.mean([o['accuracy'] for o in output]):.3f}")
-        exact_match_acc = np.mean([o['exact_match'] for o in output])
-        logger.info(f"Exact Match Accuracy: {exact_match_acc:.3f}")
+    logger.info(f"\n\n\n\n\nAccuracy: {np.mean([o['accuracy'] for o in output]):.3f}")
+    exact_match_acc = np.mean([o['exact_match'] for o in output])
+    logger.info(f"Exact Match Accuracy: {exact_match_acc:.3f}")
 
-        json.dump(output, outfile, indent=4)
+    if save_predictions:
+        with open(output_file_path, mode='w') as outfile:
+            json.dump(output, outfile, indent=4)
+
     return output_file_path, exact_match_acc
 
 

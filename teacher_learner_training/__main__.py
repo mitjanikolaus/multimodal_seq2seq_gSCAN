@@ -1,3 +1,4 @@
+import json
 import logging
 import torch
 import os
@@ -280,6 +281,7 @@ parser.add_argument("--objective", type=str, default=OBJECTIVE_TEACHER_TO_LEARNE
                     choices=[OBJECTIVE_TEACHER_TO_LEARNER, OBJECTIVE_LEARNER_TO_TEACHER_TO_LEARNER],
                     help="Which objective to use")
 
+
 # Data arguments
 parser.add_argument("--split", type=str, default="test", help="Which split to get from Grounded Scan.")
 parser.add_argument("--data_directory", type=str, default="data/uniform_dataset", help="Path to folder with data.")
@@ -335,6 +337,10 @@ parser.add_argument("--auxiliary_task", dest="auxiliary_task", default=False, ac
                          "input instruction and world state.")
 parser.add_argument("--no_auxiliary_task", dest="auxiliary_task", default=True, action="store_false")
 
+parser.add_argument("--test_checkpoints", type=str, nargs="+", default="", help="Full path to previously saved "
+                                                                             "models to load for testing.")
+
+
 # Command Encoder arguments
 parser.add_argument("--embedding_dimension", type=int, default=25)
 parser.add_argument("--num_encoder_layers", type=int, default=1)
@@ -379,7 +385,58 @@ def main(flags):
     if flags["mode"] == "train":
         train(data_path=data_path, **flags)
     elif flags["mode"] == "test":
-        raise NotImplementedError()
+        assert os.path.exists(os.path.join(flags["data_directory"], flags["input_vocab_path"])) and os.path.exists(
+            os.path.join(flags["data_directory"], flags["target_vocab_path"])), \
+            "No vocabs found at {} and {}".format(flags["input_vocab_path"], flags["target_vocab_path"])
+        splits = flags["splits"].split(",")
+
+        for test_checkpoint in flags["test_checkpoints"]:
+            exact_match_accs = {}
+            for split in splits:
+                logger.info("Loading {} dataset split...".format(split))
+                test_set = GroundedScanDataset(data_path, flags["data_directory"], split=split,
+                                               input_vocabulary_file=flags["input_vocab_path"],
+                                               target_vocabulary_file=flags["target_vocab_path"], generate_vocabulary=False,
+                                               k=flags["k"])
+                test_set.read_dataset(max_examples=flags["max_testing_examples"],
+                                      simple_situation_representation=flags["simple_situation_representation"])
+                logger.info("Done Loading {} dataset split.".format(flags["split"]))
+                logger.info("  Loaded {} examples.".format(test_set.num_examples))
+                logger.info("  Input vocabulary size: {}".format(test_set.input_vocabulary_size))
+                logger.info("  Most common input words: {}".format(test_set.input_vocabulary.most_common(5)))
+                logger.info("  Output vocabulary size: {}".format(test_set.target_vocabulary_size))
+                logger.info("  Most common target words: {}".format(test_set.target_vocabulary.most_common(5)))
+
+                model = Model(input_vocabulary_size=test_set.input_vocabulary_size,
+                              target_vocabulary_size=test_set.target_vocabulary_size,
+                              num_cnn_channels=test_set.image_channels,
+                              input_padding_idx=test_set.input_vocabulary.pad_idx,
+                              target_pad_idx=test_set.target_vocabulary.pad_idx,
+                              target_eos_idx=test_set.target_vocabulary.eos_idx,
+                              **flags)
+                model = model.cuda() if use_cuda else model
+
+                # Load model and vocabularies if resuming.
+                assert os.path.isfile(test_checkpoint), "No checkpoint found at {}".format(test_checkpoint)
+                logger.info("Loading checkpoint from file at '{}'".format(test_checkpoint))
+                model.load_model(test_checkpoint)
+                start_iteration = model.trained_iterations
+                logger.info("Loaded checkpoint '{}' (iter {})".format(test_checkpoint, start_iteration))
+                output_file_name = "_".join([split, flags["output_file_name"]])
+                output_file_path = os.path.join(flags["output_directory"], output_file_name)
+                instruction_vocab = test_set.get_vocabulary('input')
+                _, exact_match_acc = predict_and_save(dataset=test_set, model=model,
+                                                                output_file_path=output_file_path,
+                                                                lm_vocab=instruction_vocab, save_predictions=False,
+                                                                **flags)
+                exact_match_accs[split] = exact_match_acc
+            logger.info("\n\n\nAccuracies overview:")
+            for split, acc in exact_match_accs.items():
+                logger.info(f"{split}: {acc:.2f}")
+
+            accuracies_file = test_checkpoint.replace(".pth.tar", "_accuracies.json")
+            json.dump(exact_match_accs, open(accuracies_file, mode='w'))
+
     elif flags["mode"] == "predict":
         raise NotImplementedError()
     else:
