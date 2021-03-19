@@ -88,8 +88,6 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
     log_parameters(model_learner)
     trainable_parameters = [parameter for parameter in model_learner.parameters() if parameter.requires_grad]
     optimizer = torch.optim.Adam(trainable_parameters, lr=learning_rate, betas=(adam_beta_1, adam_beta_2))
-    scheduler = LambdaLR(optimizer,
-                         lr_lambda=lambda t: lr_decay ** (t / lr_decay_steps))
 
     # Load model and vocabularies if resuming.
     start_iteration = 1
@@ -105,6 +103,8 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
         start_iteration = model_learner.trained_iterations
         logger.info("Loaded checkpoint '{}' (iter {})".format(resume_from_file_learner, start_iteration))
 
+    scheduler = LambdaLR(optimizer, lr_lambda=lambda t: lr_decay ** (t / lr_decay_steps), last_epoch=start_iteration)
+
     instruction_vocab = training_set.get_vocabulary('input')
     action_vocab = training_set.get_vocabulary('target')
 
@@ -113,8 +113,10 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
     while training_iteration < max_training_iterations:
         # Shuffle the dataset and loop over it.
         training_set.shuffle_data()
-        for (input_batch, input_lengths, _, situation_batch, _, _, _, _, _, _) in training_set.get_data_iterator(
-                batch_size=training_batch_size):
+        for _, _, _, situation_batch, _, _, _, _, _, _ in training_set.get_data_iterator(
+                batch_size=training_batch_size
+        ):
+
             is_best = False
             model_learner.train()
             model_teacher.eval()
@@ -206,7 +208,7 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
                     raise NotImplementedError()
                 else:
                     auxiliary_accuracy_target = 0.
-                learning_rate = scheduler.get_lr()[0]
+                learning_rate = scheduler.get_last_lr()[0]
                 logger.info("Iteration %08d, loss %8.4f, actions_loss %8.4f, lm_loss %8.4f, accuracy %5.2f, exact match %5.2f, learning_rate %.5f,"
                             " aux. accuracy target pos %5.2f" % (training_iteration, loss, actions_loss, lm_loss, accuracy, exact_match,
                                                                  learning_rate, auxiliary_accuracy_target))
