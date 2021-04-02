@@ -106,7 +106,10 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
         start_iteration = model_learner.trained_iterations
         logger.info("Loaded checkpoint '{}' (iter {})".format(resume_from_file_learner, start_iteration))
 
-    scheduler = LambdaLR(optimizer, lr_lambda=lambda t: lr_decay ** (t / lr_decay_steps), last_epoch=start_iteration)
+    scheduler_last_epoch = start_iteration
+    if reset_optimizer:
+        scheduler_last_epoch = -1
+    scheduler = LambdaLR(optimizer, lr_lambda=lambda t: lr_decay ** (t / lr_decay_steps), last_epoch=scheduler_last_epoch)
 
     instruction_vocab = training_set.get_vocabulary('input')
     action_vocab = training_set.get_vocabulary('target')
