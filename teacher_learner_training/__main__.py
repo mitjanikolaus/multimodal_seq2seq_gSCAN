@@ -108,8 +108,36 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
     instruction_vocab = training_set.get_vocabulary('input')
     action_vocab = training_set.get_vocabulary('target')
 
-    logger.info("Training starts..")
     training_iteration = start_iteration
+
+    logger.info("Initial evaluation")
+    with torch.no_grad():
+        model_learner.eval()
+        instruction_vocab = test_set.get_vocabulary('input')
+        logger.info("Evaluating..")
+
+        accuracy, exact_match, target_accuracy, perplexity = evaluate(
+            test_set.get_data_iterator(batch_size=1), model=model_learner, lm_vocab=instruction_vocab,
+            max_decoding_steps=max_decoding_steps, pad_idx=test_set.target_vocabulary.pad_idx,
+            sos_idx=test_set.target_vocabulary.sos_idx,
+            eos_idx=test_set.target_vocabulary.eos_idx,
+            max_examples_to_evaluate=kwargs["max_testing_examples"], dataset=test_set.dataset)
+        logger.info("  Evaluation Accuracy: %5.2f Exact Match: %5.2f "
+                    " Target Accuracy: %5.2f Perplexity: %5.2f"
+                    % (accuracy, exact_match, target_accuracy, perplexity))
+        if exact_match > best_exact_match:
+            is_best = True
+            best_accuracy = accuracy
+            best_exact_match = exact_match
+            model_learner.update_state(accuracy=accuracy, exact_match=exact_match, is_best=is_best)
+        file_name = f"checkpoint_iter_{str(training_iteration)}.pth.tar"
+        model_learner.save_checkpoint(file_name=file_name, is_best=False,
+                                      optimizer_state_dict=optimizer.state_dict())
+        if is_best:
+            model_learner.save_checkpoint(file_name=file_name, is_best=is_best,
+                                          optimizer_state_dict=optimizer.state_dict())
+
+    logger.info("Training starts..")
     while training_iteration < max_training_iterations:
         # Shuffle the dataset and loop over it.
         training_set.shuffle_data()
