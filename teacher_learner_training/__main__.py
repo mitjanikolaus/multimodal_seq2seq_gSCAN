@@ -23,8 +23,8 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
           num_decoder_layers: int, decoder_dropout_p: float, cnn_kernel_size: int, cnn_dropout_p: float,
           cnn_hidden_num_channels: int, simple_situation_representation: bool, decoder_hidden_size: int,
           encoder_hidden_size: int, learning_rate: float, adam_beta_1: float, adam_beta_2: float, lr_decay: float,
-          lr_decay_steps: int, resume_from_file_teacher: str, resume_from_file_learner: str, objective: str,
-          max_training_iterations: int, output_directory: str,
+          lr_decay_steps: int, reset_optimizer: bool, resume_from_file_teacher: str, resume_from_file_learner: str,
+          objective: str,max_training_iterations: int, output_directory: str,
           print_every: int, evaluate_every: int, conditional_attention: bool, auxiliary_task: bool,
           weight_target_loss: float, weight_lm_loss: float, attention_type: str, k: int, max_training_examples=None, seed=42, **kwargs):
     device = torch.device(type='cuda') if use_cuda else torch.device(type='cpu')
@@ -99,7 +99,10 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
         assert os.path.isfile(resume_from_file_learner), "No checkpoint found at {}".format(resume_from_file_learner)
         logger.info("Loading checkpoint from file at '{}'".format(resume_from_file_learner))
         optimizer_state_dict = model_learner.load_model(resume_from_file_learner)
-        optimizer.load_state_dict(optimizer_state_dict)
+
+        if not reset_optimizer:
+            logger.info("Loading optimizer state dict from checkpoint.")
+            optimizer.load_state_dict(optimizer_state_dict)
         start_iteration = model_learner.trained_iterations
         logger.info("Loaded checkpoint '{}' (iter {})".format(resume_from_file_learner, start_iteration))
 
@@ -341,6 +344,12 @@ parser.add_argument("--max_training_iterations", type=int, default=100000)
 parser.add_argument("--weight_target_loss", type=float, default=0.3, help="Only used if --auxiliary_task set.")
 parser.add_argument("--weight_lm_loss", type=float, default=1, help="Weight for the LM target loss.")
 
+parser.add_argument("--reset_optimizer",
+                    dest="reset_optimizer",
+                    default=False,
+                    action="store_true",
+                    help="Reset the optimizer when continuing training (instead of using optimizer config from "
+                         "checkpoint).")
 
 # Testing and predicting arguments
 parser.add_argument("--max_testing_examples", type=int, default=None)
