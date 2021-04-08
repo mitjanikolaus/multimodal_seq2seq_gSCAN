@@ -16,6 +16,81 @@ from seq2seq.evaluate import evaluate
 logger = logging.getLogger(__name__)
 use_cuda = True if torch.cuda.is_available() else False
 
+def forward_pass_teacher_to_learner(situation_batch, model_teacher, model_learner, training_set, max_decoding_steps, weight_lm_loss):
+    # Generate instruction and target action sequence using teacher
+    encoded_situations = model_teacher.encode_situations(situation_batch)
+
+    _, sampled_sentences, sentence_lengths = model_teacher.sample_instructions(encoded_situations,
+                                                                               training_set.target_vocabulary.sos_idx,
+                                                                               training_set.target_vocabulary.eos_idx,
+                                                                               max_decoding_steps)
+
+    # Generate target action sequences using teacher
+    _, teacher_action_sequences, teacher_action_sequence_lengths = model_teacher.predict_actions_batch(
+        sampled_sentences,
+        sentence_lengths,
+        situation_batch,
+        training_set.target_vocabulary.sos_idx,
+        training_set.target_vocabulary.eos_idx,
+        max_decoding_steps)
+
+    # logger.info(f"Teacher-generated instructions")
+    # for sentence, action_sequence in zip(sampled_sentences, teacher_action_sequences):
+    #     print(" ".join([instruction_vocab.idx_to_word(wid) for wid in sentence if
+    #                 wid != training_set.target_vocabulary.pad_idx]))
+    #     print(" ".join([action_vocab.idx_to_word(a) for a in action_sequence if a != action_vocab.pad_idx]))
+
+    # Forward pass though learner using teacher-generated instruction and action targets.
+    target_scores, target_position_scores, instruction_lm_scores = model_learner(commands_input=sampled_sentences,
+                                                                                 commands_lengths=sentence_lengths,
+                                                                                 situations_input=situation_batch,
+                                                                                 target_batch=teacher_action_sequences,
+                                                                                 target_lengths=teacher_action_sequence_lengths)
+
+    actions_loss = model_learner.get_loss(target_scores, teacher_action_sequences)
+
+    lm_loss = model_learner.get_lm_loss(instruction_lm_scores, sampled_sentences)
+    loss = actions_loss + (weight_lm_loss * lm_loss)
+
+    return loss, actions_loss, lm_loss, target_scores, teacher_action_sequences
+
+def forward_pass_learner_to_teacher_to_learner(situation_batch, model_teacher, model_learner, training_set, max_decoding_steps, weight_lm_loss):
+    # Generate instruction and target action sequence using learner
+    encoded_situations = model_learner.encode_situations(situation_batch)
+    _, sampled_sentences, sentence_lengths = model_learner.sample_instructions(encoded_situations,
+                                                                               training_set.target_vocabulary.sos_idx,
+                                                                               training_set.target_vocabulary.eos_idx,
+                                                                               max_decoding_steps)
+
+    # Generate target action sequences using teacher
+    _, teacher_action_sequences, teacher_action_sequence_lengths = model_teacher.predict_actions_batch(
+        sampled_sentences,
+        sentence_lengths,
+        situation_batch,
+        training_set.target_vocabulary.sos_idx,
+        training_set.target_vocabulary.eos_idx,
+        max_decoding_steps)
+
+    # logger.info(f"Learner-generated instructions with teacher action sequences:")
+    # for sentence, action_sequence in zip(sampled_sentences, teacher_action_sequences):
+    #     print(" ".join([instruction_vocab.idx_to_word(wid) for wid in sentence if
+    #                 wid != training_set.target_vocabulary.pad_idx]))
+    #     print(" ".join([action_vocab.idx_to_word(a) for a in action_sequence if a != action_vocab.pad_idx]))
+
+    # Forward pass though learner using teacher-generated action targets.
+    target_scores, target_position_scores, instruction_lm_scores = model_learner(
+        commands_input=sampled_sentences, commands_lengths=sentence_lengths,
+        situations_input=situation_batch, target_batch=teacher_action_sequences,
+        target_lengths=teacher_action_sequence_lengths)
+
+    actions_loss = model_learner.get_loss(target_scores, teacher_action_sequences)
+
+    # it does not make sense to calculate LM loss (as the situation has been sampled by the learner)
+    lm_loss = 0
+    loss = actions_loss + (weight_lm_loss * lm_loss)
+
+    return loss, actions_loss, lm_loss, target_scores, teacher_action_sequences
+
 
 def train(data_path: str, data_directory: str, generate_vocabularies: bool, input_vocab_path: str,
           target_vocab_path: str, embedding_dimension: int, num_encoder_layers: int, encoder_dropout_p: float,
@@ -159,71 +234,22 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
                 raise NotImplementedError()
 
             if objective == OBJECTIVE_TEACHER_TO_LEARNER:
-                # Generate instruction and target action sequence using teacher
-                encoded_situations = model_teacher.encode_situations(situation_batch)
-
-                _, sampled_sentences, sentence_lengths = model_teacher.sample_instructions(encoded_situations,
-                                                                                           training_set.target_vocabulary.sos_idx,
-                                                                                           training_set.target_vocabulary.eos_idx,
-                                                                                           max_decoding_steps)
-
-                # Generate target action sequences using teacher
-                _, teacher_action_sequences, teacher_action_sequence_lengths = model_teacher.predict_actions_batch(sampled_sentences,
-                                                                      sentence_lengths,
-                                                                      situation_batch,
-                                                                      training_set.target_vocabulary.sos_idx,
-                                                                      training_set.target_vocabulary.eos_idx,
-                                                                      max_decoding_steps)
-
-                # logger.info(f"Teacher-generated instructions")
-                # for sentence, action_sequence in zip(sampled_sentences, teacher_action_sequences):
-                #     print(" ".join([instruction_vocab.idx_to_word(wid) for wid in sentence if
-                #                 wid != training_set.target_vocabulary.pad_idx]))
-                #     print(" ".join([action_vocab.idx_to_word(a) for a in action_sequence if a != action_vocab.pad_idx]))
-
-                # Forward pass though learner using teacher-generated instruction and action targets.
-                target_scores, target_position_scores, instruction_lm_scores = model_learner(commands_input=sampled_sentences, commands_lengths=sentence_lengths,
-                                                              situations_input=situation_batch, target_batch=teacher_action_sequences,
-                                                              target_lengths=teacher_action_sequence_lengths)
-
-                actions_loss = model_learner.get_loss(target_scores, teacher_action_sequences)
-
-                lm_loss = model_learner.get_lm_loss(instruction_lm_scores, sampled_sentences)
-                loss = actions_loss + (weight_lm_loss * lm_loss)
+                loss, actions_loss, lm_loss, target_scores, target_action_sequences = forward_pass_teacher_to_learner(
+                    situation_batch, model_teacher, model_learner, training_set, max_decoding_steps, weight_lm_loss)
 
             elif objective == OBJECTIVE_LEARNER_TO_TEACHER_TO_LEARNER:
-                # Generate instruction and target action sequence using learner
-                encoded_situations = model_learner.encode_situations(situation_batch)
-                _, sampled_sentences, sentence_lengths = model_learner.sample_instructions(encoded_situations,
-                                                                                           training_set.target_vocabulary.sos_idx,
-                                                                                           training_set.target_vocabulary.eos_idx,
-                                                                                           max_decoding_steps)
+                loss, actions_loss, lm_loss, target_scores, target_action_sequences = \
+                    forward_pass_learner_to_teacher_to_learner(situation_batch, model_teacher, model_learner,
+                                                               training_set, max_decoding_steps, weight_lm_loss)
+            elif objective == OBJECTIVE_TL_LTL:
+                _, _, lm_loss, _, _ = forward_pass_teacher_to_learner(
+                    situation_batch, model_teacher, model_learner, training_set, max_decoding_steps, weight_lm_loss)
 
-                # Generate target action sequences using teacher
-                _, teacher_action_sequences, teacher_action_sequence_lengths = model_teacher.predict_actions_batch(
-                    sampled_sentences,
-                    sentence_lengths,
-                    situation_batch,
-                    training_set.target_vocabulary.sos_idx,
-                    training_set.target_vocabulary.eos_idx,
-                    max_decoding_steps)
-
-                # logger.info(f"Learner-generated instructions with teacher action sequences:")
-                # for sentence, action_sequence in zip(sampled_sentences, teacher_action_sequences):
-                #     print(" ".join([instruction_vocab.idx_to_word(wid) for wid in sentence if
-                #                 wid != training_set.target_vocabulary.pad_idx]))
-                #     print(" ".join([action_vocab.idx_to_word(a) for a in action_sequence if a != action_vocab.pad_idx]))
-
-                # Forward pass though learner using teacher-generated action targets.
-                target_scores, target_position_scores, instruction_lm_scores = model_learner(
-                    commands_input=sampled_sentences, commands_lengths=sentence_lengths,
-                    situations_input=situation_batch, target_batch=teacher_action_sequences,
-                    target_lengths=teacher_action_sequence_lengths)
-
-                actions_loss = model_learner.get_loss(target_scores, teacher_action_sequences)
-
-                lm_loss = model_learner.get_lm_loss(instruction_lm_scores, sampled_sentences)
+                _, actions_loss, _, target_scores, target_action_sequences = \
+                    forward_pass_learner_to_teacher_to_learner(situation_batch, model_teacher, model_learner,
+                                                               training_set, max_decoding_steps, weight_lm_loss)
                 loss = actions_loss + (weight_lm_loss * lm_loss)
+
             else:
                 raise NotImplementedError("Unknown objective: ", objective)
 
@@ -237,7 +263,7 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
 
             # Print current metrics.
             if training_iteration % print_every == 0:
-                accuracy, exact_match = model_learner.get_metrics(target_scores, teacher_action_sequences)
+                accuracy, exact_match = model_learner.get_metrics(target_scores, target_action_sequences)
                 if auxiliary_task:
                     raise NotImplementedError()
                 else:
@@ -292,6 +318,7 @@ from seq2seq.predict import predict_and_save
 
 OBJECTIVE_TEACHER_TO_LEARNER = "teacher-to-learner"
 OBJECTIVE_LEARNER_TO_TEACHER_TO_LEARNER = "learner-to-teacher-to-learner"
+OBJECTIVE_TL_LTL = "both"
 
 FORMAT = "%(asctime)-15s %(message)s"
 logging.basicConfig(format=FORMAT, level=logging.DEBUG,
@@ -314,7 +341,7 @@ parser.add_argument("--resume_from_file_teacher", type=str, default="", help="Fu
 parser.add_argument("--resume_from_file_learner", type=str, default="", help="Full path to previously saved learner "
                                                                              "model to load.")
 parser.add_argument("--objective", type=str, default=OBJECTIVE_TEACHER_TO_LEARNER,
-                    choices=[OBJECTIVE_TEACHER_TO_LEARNER, OBJECTIVE_LEARNER_TO_TEACHER_TO_LEARNER],
+                    choices=[OBJECTIVE_TEACHER_TO_LEARNER, OBJECTIVE_LEARNER_TO_TEACHER_TO_LEARNER, OBJECTIVE_TL_LTL],
                     help="Which objective to use")
 
 

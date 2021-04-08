@@ -8,7 +8,7 @@ import pandas as pd
 import seaborn as sns
 
 
-DEFAULT_DIR = os.path.expanduser("~/lis-cluster/multimodal_seq2seq_gSCAN/out_learner_l_t_l")
+DEFAULT_DIR = os.path.expanduser("~/lis-cluster/multimodal_seq2seq_gSCAN/out_learner_t_l_reset_optimizer")
 
 BATCH_SIZE = 200
 START_ITERATION = 192053
@@ -44,8 +44,8 @@ def plot(args):
             plt.axhline(value, color=sns.color_palette()[i], linestyle="--")
 
     plt.ylim(0, 1)
-    plt.show()
     plt.tight_layout()
+    plt.show()
 
 
 if __name__ == "__main__":
