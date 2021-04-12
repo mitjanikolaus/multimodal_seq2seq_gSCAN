@@ -219,6 +219,10 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
                                           optimizer_state_dict=optimizer.state_dict())
 
     logger.info("Training starts..")
+    train_logs = {}
+    train_logs_file = os.path.join(output_directory, "train_logs.json")
+    eval_logs = {}
+    eval_logs_file = os.path.join(output_directory, "eval_logs.json")
     while training_iteration < max_training_iterations:
         # Shuffle the dataset and loop over it.
         training_set.shuffle_data()
@@ -242,12 +246,15 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
                     forward_pass_learner_to_teacher_to_learner(situation_batch, model_teacher, model_learner,
                                                                training_set, max_decoding_steps, weight_lm_loss)
             elif objective == OBJECTIVE_TL_LTL:
-                _, _, lm_loss, _, _ = forward_pass_teacher_to_learner(
+                _, actions_loss_tl, lm_loss, _, _ = forward_pass_teacher_to_learner(
                     situation_batch, model_teacher, model_learner, training_set, max_decoding_steps, weight_lm_loss)
 
-                _, actions_loss, _, target_scores, target_action_sequences = \
+                _, actions_loss_ltl, _, target_scores, target_action_sequences = \
                     forward_pass_learner_to_teacher_to_learner(situation_batch, model_teacher, model_learner,
                                                                training_set, max_decoding_steps, weight_lm_loss)
+                # TODO average or add?
+                actions_loss = (actions_loss_tl + actions_loss_ltl) / 2
+
                 loss = actions_loss + (weight_lm_loss * lm_loss)
 
             else:
@@ -272,6 +279,15 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
                 logger.info("Iteration %08d, loss %8.4f, actions_loss %8.4f, lm_loss %8.4f, accuracy %5.2f, exact match %5.2f, learning_rate %.5f,"
                             " aux. accuracy target pos %5.2f" % (training_iteration, loss, actions_loss, lm_loss, accuracy, exact_match,
                                                                  learning_rate, auxiliary_accuracy_target))
+
+                logs = {"loss": loss, "actions_loss": actions_loss, "lm_loss": lm_loss, "accuracy": accuracy,
+                                "exact_match": exact_match, "learning_rate": learning_rate}
+                if actions_loss_tl:
+                    logs["actions_loss_tl"] = actions_loss_tl
+                if actions_loss_ltl:
+                    logs["actions_loss_ltl"] = actions_loss_ltl
+                train_logs[training_iteration] = logs
+                json.dump(train_logs, open(train_logs_file, mode='w'))
 
             # Evaluate on test set.
             if training_iteration % evaluate_every == 0:
@@ -300,6 +316,11 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
                     if is_best:
                         model_learner.save_checkpoint(file_name=file_name, is_best=is_best,
                                               optimizer_state_dict=optimizer.state_dict())
+
+                    logs = {"accuracy": accuracy, "exact_match": exact_match, "perplexity": perplexity}
+                    eval_logs[training_iteration] = logs
+                    json.dump(eval_logs, open(eval_logs_file, mode='w'))
+
 
             training_iteration += 1
             if training_iteration > max_training_iterations:
