@@ -26,7 +26,7 @@ def forward_pass_teacher_to_learner(situation_batch, model_teacher, model_learne
                                                                                max_decoding_steps)
 
     # Generate target action sequences using teacher
-    _, teacher_action_sequences, teacher_action_sequence_lengths = model_teacher.predict_actions_batch(
+    _, teacher_action_sequences, teacher_action_sequence_lengths, _ = model_teacher.predict_actions_batch(
         sampled_sentences,
         sentence_lengths,
         situation_batch,
@@ -63,7 +63,7 @@ def forward_pass_learner_to_teacher_to_learner(situation_batch, model_teacher, m
                                                                                max_decoding_steps)
 
     # Generate target action sequences using teacher
-    _, teacher_action_sequences, teacher_action_sequence_lengths = model_teacher.predict_actions_batch(
+    _, teacher_action_sequences, teacher_action_sequence_lengths, _ = model_teacher.predict_actions_batch(
         sampled_sentences,
         sentence_lengths,
         situation_batch,
@@ -198,11 +198,12 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
         logger.info("Evaluating..")
 
         accuracy, exact_match, target_accuracy, perplexity = evaluate(
-            test_set.get_data_iterator(batch_size=1), model=model_learner, lm_vocab=instruction_vocab,
+            test_set.get_data_iterator(batch_size=test_batch_size), model=model_learner, lm_vocab=instruction_vocab,
             max_decoding_steps=max_decoding_steps, pad_idx=test_set.target_vocabulary.pad_idx,
             sos_idx=test_set.target_vocabulary.sos_idx,
             eos_idx=test_set.target_vocabulary.eos_idx,
-            max_examples_to_evaluate=kwargs["max_testing_examples"], dataset=test_set.dataset)
+            max_examples_to_evaluate=kwargs["max_testing_examples"], dataset=test_set,
+            test_batch_size=test_batch_size)
         logger.info("  Evaluation Accuracy: %5.2f Exact Match: %5.2f "
                     " Target Accuracy: %5.2f Perplexity: %5.2f"
                     % (accuracy, exact_match, target_accuracy, perplexity))
@@ -282,9 +283,8 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
 
                 logs = {"loss": loss, "actions_loss": actions_loss, "lm_loss": lm_loss, "accuracy": accuracy,
                                 "exact_match": exact_match, "learning_rate": learning_rate}
-                if actions_loss_tl:
+                if objective == OBJECTIVE_TL_LTL:
                     logs["actions_loss_tl"] = actions_loss_tl
-                if actions_loss_ltl:
                     logs["actions_loss_ltl"] = actions_loss_ltl
                 train_logs[training_iteration] = logs
                 json.dump(train_logs, open(train_logs_file, mode='w'))
@@ -297,11 +297,12 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
                     logger.info("Evaluating..")
 
                     accuracy, exact_match, target_accuracy, perplexity = evaluate(
-                        test_set.get_data_iterator(batch_size=1), model=model_learner, lm_vocab=instruction_vocab,
+                        test_set.get_data_iterator(batch_size=test_batch_size), model=model_learner, lm_vocab=instruction_vocab,
                         max_decoding_steps=max_decoding_steps, pad_idx=test_set.target_vocabulary.pad_idx,
                         sos_idx=test_set.target_vocabulary.sos_idx,
                         eos_idx=test_set.target_vocabulary.eos_idx,
-                        max_examples_to_evaluate=kwargs["max_testing_examples"], dataset=test_set.dataset)
+                        max_examples_to_evaluate=kwargs["max_testing_examples"], dataset=test_set,
+                        test_batch_size=test_batch_size)
                     logger.info("  Evaluation Accuracy: %5.2f Exact Match: %5.2f "
                                 " Target Accuracy: %5.2f Perplexity: %5.2f"
                                 % (accuracy, exact_match, target_accuracy, perplexity))
@@ -379,9 +380,9 @@ parser.add_argument("--load_vocabularies", dest="generate_vocabularies", default
                     help="Whether to use previously saved vocabularies.")
 
 # Training and learning arguments
-parser.add_argument("--training_batch_size", type=int, default=50)
+parser.add_argument("--training_batch_size", type=int, default=200)
 parser.add_argument("--k", type=int, default=0, help="How many examples from the adverb_1 split to move to train.")
-parser.add_argument("--test_batch_size", type=int, default=1, help="Currently only 1 supported due to decoder.")
+parser.add_argument("--test_batch_size", type=int, default=200, help="Test batch size.")
 parser.add_argument("--max_training_examples", type=int, default=None, help="If None all are used.")
 parser.add_argument("--learning_rate", type=float, default=0.001)
 parser.add_argument('--lr_decay', type=float, default=0.9)
@@ -467,9 +468,6 @@ def main(flags):
     # Some checks on the flags
     if flags["generate_vocabularies"]:
         assert flags["input_vocab_path"] and flags["target_vocab_path"], "Please specify paths to vocabularies to save."
-
-    if flags["test_batch_size"] > 1:
-        raise NotImplementedError("Test batch size larger than 1 not implemented.")
 
     data_path = os.path.join(flags["data_directory"], "dataset.txt")
     if flags["mode"] == "train":
