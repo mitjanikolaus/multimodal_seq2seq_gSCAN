@@ -510,7 +510,7 @@ def main(flags):
                 start_iteration = model.trained_iterations
                 logger.info("Loaded checkpoint '{}' (iter {})".format(test_checkpoint_path, start_iteration))
                 output_file_name = "_".join([split, flags["output_file_name"]])
-                output_file_path = os.path.join(flags["output_directory"], output_file_name)
+                output_file_path = os.path.join(flags["test_dir"], output_file_name)
                 instruction_vocab = test_set.get_vocabulary('input')
                 _, exact_match_acc = predict_and_save(dataset=test_set, model=model,
                                                                 output_file_path=output_file_path,
