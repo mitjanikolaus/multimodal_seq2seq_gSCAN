@@ -428,8 +428,8 @@ parser.add_argument("--auxiliary_task", dest="auxiliary_task", default=False, ac
                          "input instruction and world state.")
 parser.add_argument("--no_auxiliary_task", dest="auxiliary_task", default=True, action="store_false")
 
-parser.add_argument("--test_checkpoints", type=str, nargs="+", default="", help="Full path to previously saved "
-                                                                             "models to load for testing.")
+parser.add_argument("--test_dir", type=str, default="", help="Directory of saved models to load for testing.")
+parser.add_argument("--test_checkpoints", type=int, nargs="+", default=[], help="Checkpoints to evaluate.")
 
 
 # Command Encoder arguments
@@ -478,7 +478,7 @@ def main(flags):
             "No vocabs found at {} and {}".format(flags["input_vocab_path"], flags["target_vocab_path"])
         splits = flags["splits"].split(",")
 
-        for test_checkpoint in flags["test_checkpoints"]:
+        for checkpoint in flags["test_checkpoints"]:
             exact_match_accs = {}
             for split in splits:
                 logger.info("Loading {} dataset split...".format(split))
@@ -503,11 +503,12 @@ def main(flags):
                 model = model.cuda() if use_cuda else model
 
                 # Load model and vocabularies if resuming.
-                assert os.path.isfile(test_checkpoint), "No checkpoint found at {}".format(test_checkpoint)
-                logger.info("Loading checkpoint from file at '{}'".format(test_checkpoint))
-                model.load_model(test_checkpoint)
+                test_checkpoint_path = os.path.join(flags["test_dir"], f"checkpoint_iter_{checkpoint}.pth.tar")
+                assert os.path.isfile(test_checkpoint_path), "No checkpoint found at {}".format(test_checkpoint_path)
+                logger.info("Loading checkpoint from file at '{}'".format(test_checkpoint_path))
+                model.load_model(test_checkpoint_path)
                 start_iteration = model.trained_iterations
-                logger.info("Loaded checkpoint '{}' (iter {})".format(test_checkpoint, start_iteration))
+                logger.info("Loaded checkpoint '{}' (iter {})".format(test_checkpoint_path, start_iteration))
                 output_file_name = "_".join([split, flags["output_file_name"]])
                 output_file_path = os.path.join(flags["output_directory"], output_file_name)
                 instruction_vocab = test_set.get_vocabulary('input')
@@ -520,7 +521,7 @@ def main(flags):
             for split, acc in exact_match_accs.items():
                 logger.info(f"{split}: {acc:.2f}")
 
-            accuracies_file = test_checkpoint.replace(".pth.tar", "_accuracies.json")
+            accuracies_file = test_checkpoint_path.replace(".pth.tar", "_accuracies.json")
             json.dump(exact_match_accs, open(accuracies_file, mode='w'))
 
     elif flags["mode"] == "predict":
