@@ -281,11 +281,11 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
                             " aux. accuracy target pos %5.2f" % (training_iteration, loss, actions_loss, lm_loss, accuracy, exact_match,
                                                                  learning_rate, auxiliary_accuracy_target))
 
-                logs = {"loss": loss, "actions_loss": actions_loss, "lm_loss": lm_loss, "accuracy": accuracy,
-                                "exact_match": exact_match, "learning_rate": learning_rate}
+                logs = {"loss": loss.item(), "actions_loss": actions_loss.item(), "lm_loss": lm_loss.item(),
+                        "accuracy": accuracy, "exact_match": exact_match, "learning_rate": learning_rate}
                 if objective == OBJECTIVE_TL_LTL:
-                    logs["actions_loss_tl"] = actions_loss_tl
-                    logs["actions_loss_ltl"] = actions_loss_ltl
+                    logs["actions_loss_tl"] = actions_loss_tl.item()
+                    logs["actions_loss_ltl"] = actions_loss_ltl.item()
                 train_logs[training_iteration] = logs
                 json.dump(train_logs, open(train_logs_file, mode='w'))
 
