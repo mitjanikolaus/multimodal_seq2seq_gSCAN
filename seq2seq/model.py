@@ -393,7 +393,7 @@ class Model(nn.Module):
         targets = self.remove_start_of_sequence(input_sequences)
         target_scores_2d = logits.reshape(-1, vocabulary_size)
         loss = F.cross_entropy(target_scores_2d, targets.view(-1))
-        lm_perplexity = torch.exp(loss)
+        lm_perplexity = torch.exp(loss).item()
 
         # For efficiency
         projected_keys_visual = self.visual_attention.key_layer(

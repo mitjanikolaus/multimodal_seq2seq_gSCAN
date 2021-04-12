@@ -8,7 +8,7 @@ import pandas as pd
 import seaborn as sns
 
 
-DEFAULT_DIR = os.path.expanduser("~/lis-cluster/multimodal_seq2seq_gSCAN/out_learner_t_l_reset_optimizer")
+DEFAULT_DIR = os.path.expanduser("~/lis-cluster/multimodal_seq2seq_gSCAN/out_learner_t_l_eval_start_lm")
 
 BATCH_SIZE = 200
 START_ITERATION = 192053

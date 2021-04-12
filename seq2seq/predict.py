@@ -216,5 +216,4 @@ def predict(data_iterator: Iterator, model: nn.Module, lm_vocab: Vocabulary, max
     auxiliary_accuracy_target = 0.0
 
     exact_match = [acc == 100 for acc in accuracies] * 100
-    return (float(np.mean(accuracies)), float(np.mean(exact_match)), float(auxiliary_accuracy_target),
-            float(np.mean(lm_perplexities)))
+    return np.mean(accuracies), np.mean(exact_match), auxiliary_accuracy_target, np.mean(lm_perplexities)
