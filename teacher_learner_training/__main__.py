@@ -406,7 +406,7 @@ parser.add_argument("--reset_optimizer",
 # Testing and predicting arguments
 parser.add_argument("--max_testing_examples", type=int, default=None)
 parser.add_argument("--splits", type=str, default="test", help="comma-separated list of splits to predict for.")
-parser.add_argument("--max_decoding_steps", type=int, default=30, help="After 30 decoding steps, the decoding process "
+parser.add_argument("--max_decoding_steps", type=int, default=120, help="After 120 decoding steps, the decoding process "
                                                                        "is stopped regardless of whether an EOS token "
                                                                        "was generated.")
 parser.add_argument("--output_file_name", type=str, default="predict.json")
