@@ -171,6 +171,7 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
     best_accuracy = 0
     best_exact_match = 0
     best_loss = float('inf')
+    is_best = False
     if resume_from_file_learner:
         assert os.path.isfile(resume_from_file_learner), "No checkpoint found at {}".format(resume_from_file_learner)
         logger.info("Loading checkpoint from file at '{}'".format(resume_from_file_learner))
