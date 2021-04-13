@@ -477,33 +477,28 @@ def main(flags):
             os.path.join(flags["data_directory"], flags["target_vocab_path"])), \
             "No vocabs found at {} and {}".format(flags["input_vocab_path"], flags["target_vocab_path"])
         splits = flags["splits"].split(",")
-        # Pre-load test sets
-        test_sets = {}
-        for split in splits:
-            test_set = GroundedScanDataset(data_path, flags["data_directory"], split=split,
-                                           input_vocabulary_file=flags["input_vocab_path"],
-                                           target_vocabulary_file=flags["target_vocab_path"], generate_vocabulary=False,
-                                           k=flags["k"], log_stats=False)
-            test_set.read_dataset(max_examples=flags["max_testing_examples"],
-                                  simple_situation_representation=flags["simple_situation_representation"])
-            test_sets[split] = test_set
 
         for checkpoint in flags["test_checkpoints"]:
             exact_match_accs = {}
             for split in splits:
                 logger.info("Loading {} dataset split...".format(split))
-
+                test_set = GroundedScanDataset(data_path, flags["data_directory"], split=split,
+                                               input_vocabulary_file=flags["input_vocab_path"],
+                                               target_vocabulary_file=flags["target_vocab_path"], generate_vocabulary=False,
+                                               k=flags["k"], log_stats=False)
+                test_set.read_dataset(max_examples=flags["max_testing_examples"],
+                                      simple_situation_representation=flags["simple_situation_representation"])
                 logger.info("Done Loading {} dataset split.".format(flags["split"]))
-                logger.info("  Loaded {} examples.".format(test_sets[split].num_examples))
+                logger.info("  Loaded {} examples.".format(test_set.num_examples))
                 # logger.info("  Input vocabulary size: {}".format(test_set.input_vocabulary_size))
                 # logger.info("  Output vocabulary size: {}".format(test_set.target_vocabulary_size))
 
-                model = Model(input_vocabulary_size=test_sets[split].input_vocabulary_size,
-                              target_vocabulary_size=test_sets[split].target_vocabulary_size,
-                              num_cnn_channels=test_sets[split].image_channels,
-                              input_padding_idx=test_sets[split].input_vocabulary.pad_idx,
-                              target_pad_idx=test_sets[split].target_vocabulary.pad_idx,
-                              target_eos_idx=test_sets[split].target_vocabulary.eos_idx,
+                model = Model(input_vocabulary_size=test_set.input_vocabulary_size,
+                              target_vocabulary_size=test_set.target_vocabulary_size,
+                              num_cnn_channels=test_set.image_channels,
+                              input_padding_idx=test_set.input_vocabulary.pad_idx,
+                              target_pad_idx=test_set.target_vocabulary.pad_idx,
+                              target_eos_idx=test_set.target_vocabulary.eos_idx,
                               **flags)
                 model = model.cuda() if use_cuda else model
 
@@ -516,8 +511,8 @@ def main(flags):
                 logger.info("Loaded checkpoint '{}' (iter {})".format(test_checkpoint_path, start_iteration))
                 output_file_name = "_".join([split, flags["output_file_name"]])
                 output_file_path = os.path.join(flags["test_dir"], output_file_name)
-                instruction_vocab = test_sets[split].get_vocabulary('input')
-                _, exact_match_acc = predict_and_save(dataset=test_sets[split], model=model,
+                instruction_vocab = test_set.get_vocabulary('input')
+                _, exact_match_acc = predict_and_save(dataset=test_set, model=model,
                                                                 output_file_path=output_file_path,
                                                                 lm_vocab=instruction_vocab, save_predictions=False,
                                                                 **flags)
