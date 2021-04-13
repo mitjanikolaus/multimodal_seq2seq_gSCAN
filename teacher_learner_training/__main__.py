@@ -166,6 +166,7 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
 
     # Load model and vocabularies if resuming.
     start_iteration = 1
+    scheduler_last_epoch = -1
     best_iteration = 1
     best_accuracy = 0
     best_exact_match = 0
@@ -178,12 +179,10 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
         if not reset_optimizer:
             logger.info("Loading optimizer state dict from checkpoint.")
             optimizer.load_state_dict(optimizer_state_dict)
+            scheduler_last_epoch = model_learner.trained_iterations
         start_iteration = model_learner.trained_iterations
         logger.info("Loaded checkpoint '{}' (iter {})".format(resume_from_file_learner, start_iteration))
 
-    scheduler_last_epoch = start_iteration
-    if reset_optimizer:
-        scheduler_last_epoch = -1
     scheduler = LambdaLR(optimizer, lr_lambda=lambda t: lr_decay ** (t / lr_decay_steps), last_epoch=scheduler_last_epoch)
 
     instruction_vocab = training_set.get_vocabulary('input')
