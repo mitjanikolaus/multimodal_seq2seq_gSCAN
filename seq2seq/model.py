@@ -382,7 +382,6 @@ class Model(nn.Module):
 
         batch_size = input_sequences.shape[0]
 
-
         encoded_inputs = self.encode_input(commands_input=input_sequences,
                                            commands_lengths=input_lengths,
                                            situations_input=situations)
@@ -392,8 +391,7 @@ class Model(nn.Module):
         _, _, vocabulary_size = logits.size()
         targets = self.remove_start_of_sequence(input_sequences)
         target_scores_2d = logits.reshape(-1, vocabulary_size)
-        loss = F.cross_entropy(target_scores_2d, targets.view(-1))
-        lm_perplexity = torch.exp(loss).item()
+        lm_loss = F.cross_entropy(target_scores_2d, targets.view(-1)).item()
 
         # For efficiency
         projected_keys_visual = self.visual_attention.key_layer(
@@ -459,5 +457,5 @@ class Model(nn.Module):
 
         decode_lengths = decode_lengths + 1
 
-        return scores, actions, decode_lengths, lm_perplexity
+        return scores, actions, decode_lengths, lm_loss
 

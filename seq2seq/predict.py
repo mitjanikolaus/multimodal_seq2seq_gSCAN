@@ -109,7 +109,7 @@ def predict(data_iterator: Iterator, model: nn.Module, lm_vocab: Vocabulary, max
     i = 0
 
     accuracies = []
-    lm_perplexities = []
+    lm_losses = []
 
     for (input_batch, input_lengths, derivation_spec, situation_batch, situation_spec, target_batch,
          target_lengths, agent_positions, target_positions, situation_image) in data_iterator:
@@ -118,7 +118,7 @@ def predict(data_iterator: Iterator, model: nn.Module, lm_vocab: Vocabulary, max
             if i*test_batch_size >= max_examples_to_evaluate:
                 break
 
-        scores, predicted_action_sequences, action_sequence_lengths, lm_perplexity = model.predict_actions_batch(
+        scores, predicted_action_sequences, action_sequence_lengths, lm_loss = model.predict_actions_batch(
             input_batch,
             input_lengths,
             situation_batch,
@@ -130,7 +130,7 @@ def predict(data_iterator: Iterator, model: nn.Module, lm_vocab: Vocabulary, max
             accuracy = sequence_accuracy(predicted_action_sequences[j][:int(target_lengths[j])][1:-1].tolist(),
                                          target_batch[j][:int(target_lengths[j])][1:-1].tolist())
             accuracies.append(accuracy)
-            lm_perplexities.append(lm_perplexity)
+            lm_losses.append(lm_loss)
 
 
         # # Encode the input sequence.
@@ -216,4 +216,6 @@ def predict(data_iterator: Iterator, model: nn.Module, lm_vocab: Vocabulary, max
     auxiliary_accuracy_target = 0.0
 
     exact_match = [acc == 100 for acc in accuracies] * 100
-    return np.mean(accuracies), np.mean(exact_match), auxiliary_accuracy_target, np.mean(lm_perplexities)
+
+    perplexity = np.exp(np.mean(lm_losses))
+    return np.mean(accuracies), np.mean(exact_match), auxiliary_accuracy_target, perplexity
