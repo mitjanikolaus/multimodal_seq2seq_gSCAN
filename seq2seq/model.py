@@ -386,12 +386,9 @@ class Model(nn.Module):
                                            commands_lengths=input_lengths,
                                            situations_input=situations)
 
-        # get encoder lm perplexity
+        # get encoder lm loss
         logits = encoded_inputs['instruction_lm_logits']
-        _, _, vocabulary_size = logits.size()
-        targets = self.remove_start_of_sequence(input_sequences)
-        target_scores_2d = logits.reshape(-1, vocabulary_size)
-        lm_loss = F.cross_entropy(target_scores_2d, targets.view(-1)).item()
+        lm_loss = self.get_lm_loss(logits, input_sequences).item()
 
         # For efficiency
         projected_keys_visual = self.visual_attention.key_layer(

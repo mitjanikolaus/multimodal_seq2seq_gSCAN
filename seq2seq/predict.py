@@ -126,11 +126,11 @@ def predict(data_iterator: Iterator, model: nn.Module, lm_vocab: Vocabulary, max
             dataset.target_vocabulary.eos_idx,
             max_decoding_steps)
 
+        lm_losses.append(lm_loss)
         for j in range(test_batch_size):
             accuracy = sequence_accuracy(predicted_action_sequences[j][:int(target_lengths[j])][1:-1].tolist(),
                                          target_batch[j][:int(target_lengths[j])][1:-1].tolist())
             accuracies.append(accuracy)
-            lm_losses.append(lm_loss)
 
 
         # # Encode the input sequence.
