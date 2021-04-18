@@ -143,7 +143,7 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
                         max_decoding_steps=max_decoding_steps, pad_idx=test_set.target_vocabulary.pad_idx,
                         sos_idx=test_set.target_vocabulary.sos_idx,
                         eos_idx=test_set.target_vocabulary.eos_idx,
-                        max_examples_to_evaluate=kwargs["max_testing_examples"], dataset=test_set.dataset)
+                        max_examples_to_evaluate=kwargs["max_testing_examples"], dataset=test_set)
                     logger.info("  Evaluation Accuracy: %5.2f Exact Match: %5.2f "
                                 " Target Accuracy: %5.2f Perplexity: %5.2f"
                                 % (accuracy, exact_match, target_accuracy, perplexity))
