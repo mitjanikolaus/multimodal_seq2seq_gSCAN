@@ -254,7 +254,7 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
                     forward_pass_learner_to_teacher_to_learner(situation_batch, model_teacher, model_learner,
                                                                training_set, max_decoding_steps, weight_lm_loss)
                 # TODO average or add?
-                actions_loss = actions_loss_tl + actions_loss_ltl
+                actions_loss = (actions_loss_tl + actions_loss_ltl) / 2
 
                 loss = actions_loss + (weight_lm_loss * lm_loss)
 
