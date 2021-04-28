@@ -10,6 +10,7 @@ from typing import List
 from typing import Tuple
 
 from seq2seq.helpers import sequence_mask
+from seq2seq.positional_embedding import position_encoding_init
 from math import sqrt
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -25,8 +26,8 @@ class EncoderRNN(nn.Module):
       for transfer to an attention-based decoder
     """
     def __init__(self, input_size: int, embedding_dim: int, visual_embedding_dim: int, rnn_input_size: int,
-                 hidden_size: int, num_layers: int, dropout_probability: float, bidirectional: bool,
-                 padding_idx: int, vocab_size:int):
+                 hidden_size: int, num_layers: int, visual_transform_cnn_kernel_size: int,
+                 dropout_probability: float, bidirectional: bool, padding_idx: int, vocab_size:int):
         """
         :param input_size: number of input symbols
         :param embedding_dim: number of hidden units in RNN encoder, and size of all embeddings
@@ -42,19 +43,30 @@ class EncoderRNN(nn.Module):
         self.dropout_probability = dropout_probability
         self.bidirectional = bidirectional
         self.embedding = nn.Embedding(input_size, embedding_dim, padding_idx=padding_idx)
+        #self.target_row_embedding = nn.Embedding(4, 1)
+        #self.target_col_embedding = nn.Embedding(4, 1)
+
+        # self.target_position_embedding = torch.nn.Embedding(visual_transform_cnn_kernel_size ** 2, 10)
+        # self.target_position_embedding.weight.data = position_encoding_init(visual_transform_cnn_kernel_size ** 2, 10)
+        # self.target_position_embedding.weight.requires_grad = True
+        self.sigmoid = nn.Sigmoid()
+
         self.dropout = nn.Dropout(dropout_probability)
         self.lstm = nn.LSTM(input_size=rnn_input_size, hidden_size=hidden_size, num_layers=num_layers,
                             dropout=dropout_probability, bidirectional=bidirectional)
         self.visual_transform = nn.Linear(visual_embedding_dim, hidden_size)
-        #self.visual_transform = nn.Conv2d(in_channels=visual_embedding_dim, out_channels=hidden_size,
-        #                                  kernel_size=4, padding=0)
+        #self.visual_position_combine = nn.Linear(hidden_size, hidden_size)
+        #self.visual_position_combine = nn.Linear(hidden_size + 10, hidden_size)
+
+        # self.visual_transform = nn.Conv2d(in_channels=visual_embedding_dim + 2, out_channels=hidden_size,
+        #                                   kernel_size=visual_transform_cnn_kernel_size, padding=0)
 
         self.lm_out = nn.Linear(self.hidden_size, vocab_size)
         self.dropout_out = nn.Dropout(dropout_probability)
 
 
-
-    def forward(self, input_batch: torch.LongTensor, input_lengths: List[int], cnn_output_batch: torch.LongTensor) \
+    def forward(self, input_batch: torch.LongTensor, input_lengths: List[int], cnn_output_batch: torch.LongTensor,
+                target_positions_batch: torch.LongTensor, mode: str) \
             -> Tuple[torch.Tensor, dict]:
         """
         :param input_batch: [batch_size, max_length]; batched padded input sequences
@@ -66,6 +78,59 @@ class EncoderRNN(nn.Module):
         meaning the whole sequence in both directions, whereas the output per time step represents different parts of
         the sequences (0:t for the forward LSTM, t:T for the backward LSTM).
         """
+
+        #print(target_positions_batch.shape, "target_positions_batch,shape")
+        # position_embedding = self.target_position_embedding(target_positions_batch)  # [batch_size, max_length, embedding_dim]
+        #position_embedding = self.dropout(position_embedding)
+        #position_embedding = self.sigmoid(target_positions_batch)
+        #position_embedding.require_grad = False
+        # row_embedding = self.target_row_embedding(target_positions_batch[:, 0])  # [batch_size, max_length, embedding_dim]
+        # row_embedding = self.dropout(row_embedding)
+        # col_embedding = self.target_col_embedding(target_positions_batch[:, 1])
+        # col_embedding = self.dropout(col_embedding)
+
+        # TODO
+        ## add positional embedding indicators e.g. <2> </2> to input sequence
+        if mode == 'action':
+            pass
+            #print(input_batch.shape, "input_batch.shape")
+            #print(target_positions_batch, "target_positions_batch.shape")
+            # save normal start symbol
+            #start_symbols = input_batch[:, 0]
+            #end_symbols = input_batch[:, -2]
+            #padding_symbols = input_batch[:, -1]
+
+            #print(start_symbols[0], "start_symbols[0]")
+            #print(input_batch[0], " input_batch[0]")
+
+            #remove normal start and end symbol
+            #input_batch = input_batch[:, 1:]
+            #input_batch = input_batch[:, :-2]
+
+            #print(target_positions_batch[0], "target_positions_batch")
+
+            #print(input_batch[0], " input_batch[0]")
+            # concatenate position start symbol to beginning
+            #input_batch = torch.cat((target_positions_batch[:, 0].unsqueeze(-1), input_batch), dim=1)
+            #print(input_batch[0], " input_batch[0]")
+            #input_batch = torch.cat((input_batch, target_positions_batch[:, 1].unsqueeze(-1)), dim=1)
+            #print(input_batch[0], " input_batch[0]")
+
+
+            #print(input_batch[0], " input_batch[0]")
+            #add normal sos/eos/pad again
+            #input_batch = torch.cat((start_symbols.unsqueeze(-1), input_batch), dim=1)
+            #input_batch = torch.cat((input_batch, end_symbols.unsqueeze(-1)), dim=1)
+            #input_batch = torch.cat((input_batch, padding_symbols.unsqueeze(-1)), dim=1)
+            #print(input_batch[0], " input_batch[0]")
+            #print('\n')
+            #print(input_batch.shape, "input_batch_2.shape")
+
+            # position_embedding = torch.ones_like(position_embedding) * - 1.0
+            # row_embedding = torch.zeros_like(row_embedding)
+            # col_embedding = torch.zeros_like(col_embedding)
+
+
         assert input_batch.size(0) == len(input_lengths), "Wrong amount of lengths passed to .forward()"
         input_embeddings = self.embedding(input_batch)  # [batch_size, max_length, embedding_dim]
         input_embeddings = self.dropout(input_embeddings)  # [batch_size, max_length, embedding_dim]
@@ -81,11 +146,6 @@ class EncoderRNN(nn.Module):
         # max/mean pool visual kernel
         pooled_visual_input_batch = torch.mean(cnn_output_batch, dim=1)
 
-        # transform visual featueres to lstm. hidden space
-        #_, image_dim, num_channels = cnn_output_batch.shape
-        #cnn_output_batch = cnn_output_batch.reshape((-1, int(sqrt(image_dim)), int(sqrt(image_dim)), num_channels))
-        #cnn_output_batch = cnn_output_batch.transpose(1, 3)
-
         visual_embedding = self.visual_transform(pooled_visual_input_batch)    # batch_size x embedding_dim
         #cnn produces two extra final dims
         #visual_embedding = visual_embedding.squeeze(-1)
@@ -94,15 +154,17 @@ class EncoderRNN(nn.Module):
         # unsqueeze first dim because h_0 expects num_layers * num_directions, batch, hidden_size
         visual_embedding = visual_embedding.unsqueeze(0)
 
-        #concat. along first dim, with visual embeddings first
-        #combined_embeddings = torch.cat((visual_embedding, input_embeddings), dim=1)
-        #add 1 to all input_lengths to accommodated for extra visual timestep
-        #input_lengths = input_lengths + 1
+        # RNN embedding.
+        packed_input = pack_padded_sequence(input_embeddings, input_lengths.cpu(), batch_first=True)
+        # init lstm hidden state h_0 with visual embedding
+        packed_output, (hidden, cell) = self.lstm(packed_input, (visual_embedding, visual_embedding))
 
         # RNN embedding.
         packed_input = pack_padded_sequence(input_embeddings, input_lengths.cpu(), batch_first=True)
+        h0 = visual_embedding
+        c0 = visual_embedding #torch.zeros_like(visual_embedding, requires_grad=True)
         #init lstm hidden state h_0 with visual embedding
-        packed_output, (hidden, cell) = self.lstm(packed_input, (visual_embedding, visual_embedding))
+        packed_output, (hidden, cell) = self.lstm(packed_input, (h0, c0))
         # hidden, cell [num_layers * num_directions, batch_size, embedding_dim]
         # hidden and cell are unpacked, such that they store the last hidden state for each sequence in the batch.
         output_per_timestep, _ = pad_packed_sequence(

@@ -7,6 +7,7 @@ from collections import Counter
 import json
 import torch
 import numpy as np
+from .helpers import OrderedCounter
 
 from GroundedScan.dataset import GroundedScan
 
@@ -45,6 +46,21 @@ class Vocabulary(object):
                 self._word_to_idx[word] = self.size
                 self._idx_to_word.append(word)
             self._word_frequencies[word] += 1
+
+    def add_positional_symbols(self, positions: List[str]):
+        for pos in positions:
+            pos_st = '<' + pos + '>'
+            if pos_st not in self._word_to_idx:
+                self._word_to_idx[pos_st] = self.size
+                self._idx_to_word.append(pos_st)
+            self._word_frequencies[pos_st] += 1
+
+            pos_end = '<' + pos + '/>'
+            if pos_end not in self._word_to_idx:
+                self._word_to_idx[pos_end] = self.size
+                self._idx_to_word.append(pos_end)
+            self._word_frequencies[pos_end] += 1
+        print(self._word_to_idx, "self._word_to_idx")
 
     def most_common(self, n=10):
         return self._word_frequencies.most_common(n=n)
@@ -102,8 +118,9 @@ class GroundedScanDataset(object):
     Loads a GroundedScan instance from a specified location.
     """
 
-    def __init__(self, path_to_data: str, save_directory: str, k: int, split="train", input_vocabulary_file="",
-                 target_vocabulary_file="", generate_vocabulary=False, log_stats=True):
+    def __init__(self, path_to_data: str, save_directory: str, k: int, visual_transform_cnn_kernel_size:int,
+                 split="train", input_vocabulary_file="", target_vocabulary_file="", generate_vocabulary=False,
+                 log_stats=False):
         assert os.path.exists(path_to_data), "Trying to read a gSCAN dataset from a non-existing file {}.".format(
             path_to_data)
         if not generate_vocabulary:
@@ -133,13 +150,16 @@ class GroundedScanDataset(object):
 
         # Keeping track of data.
         self._examples = np.array([])
-        self._input_lengths = np.array([])
+        self._input_lengths_instruct = np.array([])
+        self._input_lengths_action = np.array([])
         self._target_lengths = np.array([])
         if generate_vocabulary:
             logger.info("Generating vocabularies...")
             self.input_vocabulary = Vocabulary()
             self.target_vocabulary = Vocabulary()
-            self.read_vocabularies()
+            #get list of positions
+            positions = [str(p) for p in range(visual_transform_cnn_kernel_size ** 2)]
+            self.read_vocabularies(positions)
             logger.info("Done generating vocabularies.")
         else:
             logger.info("Loading vocabularies...")
@@ -147,7 +167,7 @@ class GroundedScanDataset(object):
             self.target_vocabulary = Vocabulary.load(os.path.join(save_directory, target_vocabulary_file))
             logger.info("Done loading vocabularies.")
 
-    def read_vocabularies(self) -> {}:
+    def read_vocabularies(self, positions) -> {}:
         """
         Loop over all examples in the dataset and add the words in them to the vocabularies.
         """
@@ -155,6 +175,7 @@ class GroundedScanDataset(object):
         for i, example in enumerate(self.dataset.get_examples_with_image(self.split)):
             self.input_vocabulary.add_sentence(example["input_command"])
             self.target_vocabulary.add_sentence(example["target_command"])
+        self.input_vocabulary.add_positional_symbols(positions)
 
     def save_vocabularies(self, input_vocabulary_file: str, target_vocabulary_file: str):
         self.input_vocabulary.save(os.path.join(self.directory, input_vocabulary_file))
@@ -176,7 +197,8 @@ class GroundedScanDataset(object):
         random_permutation = np.random.permutation(len(self._examples))
         self._examples = self._examples[random_permutation]
         self._target_lengths = self._target_lengths[random_permutation]
-        self._input_lengths = self._input_lengths[random_permutation]
+        self._input_lengths_instruct = self._input_lengths_instruct[random_permutation]
+        self._input_lengths_action = self._input_lengths_action[random_permutation]
 
     def get_data_iterator(self, batch_size=10) -> Tuple[torch.Tensor, List[int], torch.Tensor, List[dict],
                                                         torch.Tensor, List[int], torch.Tensor, torch.Tensor]:
@@ -192,31 +214,40 @@ class GroundedScanDataset(object):
             if example_i + batch_size > len(self._examples):
                 batch_size = len(self._examples) - example_i
             examples = self._examples[example_i:example_i + batch_size]
-            input_lengths = self._input_lengths[example_i:example_i + batch_size]
+            input_lengths_instruct = self._input_lengths_instruct[example_i:example_i + batch_size]
+            input_lengths_action = self._input_lengths_action[example_i:example_i + batch_size]
             target_lengths = self._target_lengths[example_i:example_i + batch_size]
-            max_input_length = np.max(input_lengths)
+            max_input_length = np.max(input_lengths_instruct)
             max_target_length = np.max(target_lengths)
-            input_batch = []
+            input_batch_instruct = []
+            input_batch_action = []
             target_batch = []
             situation_batch = []
             situation_representation_batch = []
+            unique_objects_batch = []
             situation_image_batch = []
             derivation_representation_batch = []
             agent_positions_batch = []
             target_positions_batch = []
             for example in examples:
-                to_pad_input = max_input_length - example["input_tensor"].size(1)
+                to_pad_input_instruct = max_input_length - example["input_tensor_instruct"].size(1)
+                to_pad_input_action = max_input_length - example["input_tensor_action"].size(1)
+
                 to_pad_target = max_target_length - example["target_tensor"].size(1)
-                padded_input = torch.cat([
-                    example["input_tensor"],
-                    torch.zeros(int(to_pad_input), dtype=torch.long, device=device).unsqueeze(0)], dim=1)
+                padded_input_instruct = torch.cat([
+                    example["input_tensor_instruct"],
+                    torch.zeros(int(to_pad_input_instruct), dtype=torch.long, device=device).unsqueeze(0)], dim=1)
+                padded_input_action = torch.cat([
+                    example["input_tensor_action"],
+                    torch.zeros(int(to_pad_input_action), dtype=torch.long, device=device).unsqueeze(0)], dim=1)
                 # padded_input = torch.cat([
                 #     torch.zeros_like(example["input_tensor"], dtype=torch.long, device=device),
                 #     torch.zeros(int(to_pad_input), dtype=torch.long, device=devicedevice).unsqueeze(0)], dim=1) # TODO: change back
                 padded_target = torch.cat([
                     example["target_tensor"],
                     torch.zeros(int(to_pad_target), dtype=torch.long, device=device).unsqueeze(0)], dim=1)
-                input_batch.append(padded_input)
+                input_batch_instruct.append(padded_input_instruct)
+                input_batch_action.append(padded_input_action)
                 target_batch.append(padded_target)
                 situation_batch.append(example["situation_tensor"])
                 situation_representation_batch.append(example["situation_representation"])
@@ -224,11 +255,13 @@ class GroundedScanDataset(object):
                 agent_positions_batch.append(example["agent_position"])
                 target_positions_batch.append(example["target_position"])
                 situation_image_batch.append(example["situation_image"])
+                unique_objects_batch.append(example['unique_objects'])
 
-            yield (torch.cat(input_batch, dim=0), input_lengths, derivation_representation_batch,
+            yield (torch.cat(input_batch_instruct, dim=0), torch.cat(input_batch_action, dim=0), input_lengths_instruct,
+                   input_lengths_action, derivation_representation_batch,
                    torch.cat(situation_batch, dim=0), situation_representation_batch, torch.cat(target_batch, dim=0),
                    target_lengths, torch.cat(agent_positions_batch, dim=0), torch.cat(target_positions_batch, dim=0),
-                   situation_image_batch)
+                   situation_image_batch, unique_objects_batch)
 
     def read_dataset(self, max_examples=None, simple_situation_representation=False) -> {}:
         """
@@ -246,16 +279,58 @@ class GroundedScanDataset(object):
             empty_example = {}
             input_commands = example["input_command"]
             target_commands = example["target_command"]
+
             #equivalent_target_commands = example["equivalent_target_command"]
             situation_image = example["situation_image"]
             if i == 0:
                 self.image_dimensions = situation_image.shape[0]
                 self.image_channels = situation_image.shape[-1]
             situation_repr = example["situation_representation"]
-            input_array = self.sentence_to_array(input_commands, vocabulary="input")
+
+            ## get placed objects that are unique in env
+            all_object_specs = []
+            all_object_positions = []
+            unique_object_specs_and_positions = []
+
+            for obj_id, object_dict in situation_repr['placed_objects'].items():
+                object_position = object_dict['position']
+                all_object_positions.append(object_position)
+
+                object_specs = object_dict['object']
+                object_spec_summary = '-'.join(object_specs.values())
+                all_object_specs.append(object_spec_summary)
+
+            # find objects that only occur once i.e. are unique
+            all_object_counts = OrderedCounter(all_object_specs)
+
+            for idx, (object_spec_summary, count) in enumerate(all_object_counts.items()):
+                if count == 1:
+                    shape = object_spec_summary.split('-')[0]
+                    color = object_spec_summary.split('-')[1]
+                    size = object_spec_summary.split('-')[2]
+                    object_specs = {'shape': shape, 'color': color, 'size': size}
+                    object_position = all_object_positions[idx]
+
+                    combined_dict = {**object_position, **object_specs}
+                    unique_object_specs_and_positions.append(combined_dict)
+
+            target_position = int(situation_repr["target_object"]["position"]["row"]) * \
+                              int(situation_repr["grid_size"]) + \
+                              int(situation_repr["target_object"]["position"]["column"])
+
+            target_positions = [self.item_to_array('<' + str(target_position) + '>', vocabulary='input'),
+                                self.item_to_array('<' + str(target_position) + '/>', vocabulary='input')]
+            empty_example["target_position"] = torch.tensor(target_position,
+                                                            dtype=torch.long, device=device).unsqueeze(dim=0)
+
+            input_array_instruct = self.sentence_to_array(input_commands, vocabulary="input", target_positions=target_positions)
+            input_array_action = self.sentence_to_array(input_commands, vocabulary="input")
             target_array = self.sentence_to_array(target_commands, vocabulary="target")
             #equivalent_target_array = self.sentence_to_array(equivalent_target_commands, vocabulary="target")
-            empty_example["input_tensor"] = torch.tensor(input_array, dtype=torch.long, device=device).unsqueeze(
+            empty_example["input_tensor_instruct"] = torch.tensor(input_array_instruct, dtype=torch.long, device=device).unsqueeze(
+                dim=0)
+            empty_example["input_tensor_action"] = torch.tensor(input_array_action, dtype=torch.long,
+                                                                  device=device).unsqueeze(
                 dim=0)
             empty_example["target_tensor"] = torch.tensor(target_array, dtype=torch.long, device=device).unsqueeze(
                 dim=0)
@@ -264,21 +339,20 @@ class GroundedScanDataset(object):
             empty_example["situation_tensor"] = torch.tensor(situation_image, dtype=torch.float, device=device
                                                              ).unsqueeze(dim=0)
             empty_example["situation_representation"] = situation_repr
+            empty_example['unique_objects'] = unique_object_specs_and_positions
             empty_example["situation_image"] = situation_image
             empty_example["derivation_representation"] = example["derivation_representation"]
             empty_example["agent_position"] = torch.tensor(
                 (int(situation_repr["agent_position"]["row"]) * int(situation_repr["grid_size"])) +
                 int(situation_repr["agent_position"]["column"]), dtype=torch.long,
                 device=device).unsqueeze(dim=0)
-            empty_example["target_position"] = torch.tensor(
-                (int(situation_repr["target_object"]["position"]["row"]) * int(situation_repr["grid_size"])) +
-                int(situation_repr["target_object"]["position"]["column"]),
-                dtype=torch.long, device=device).unsqueeze(dim=0)
-            self._input_lengths = np.append(self._input_lengths, [len(input_array)])
+
+            self._input_lengths_instruct = np.append(self._input_lengths_instruct, [len(input_array_instruct)])
+            self._input_lengths_action = np.append(self._input_lengths_action, [len(input_array_action)])
             self._target_lengths = np.append(self._target_lengths, [len(target_array)])
             self._examples = np.append(self._examples, [empty_example])
 
-    def sentence_to_array(self, sentence: List[str], vocabulary: str) -> List[int]:
+    def sentence_to_array(self, sentence: List[str], vocabulary: str, target_positions: List[str]=None) -> List[int]:
         """
         Convert each string word in a sentence to the corresponding integer from the vocabulary and append
         a start-of-sequence and end-of-sequence token.
@@ -288,10 +362,26 @@ class GroundedScanDataset(object):
         """
         vocab = self.get_vocabulary(vocabulary)
         sentence_array = [vocab.sos_idx]
+        if target_positions:
+            sentence_array.append(target_positions[0])
         for word in sentence:
             sentence_array.append(vocab.word_to_idx(word))
+        if target_positions:
+            sentence_array.append(target_positions[1])
         sentence_array.append(vocab.eos_idx)
         return sentence_array
+
+    def item_to_array(self, item: str, vocabulary: str) -> List[int]:
+        """
+        Convert each string word in a sentence to the corresponding integer from the vocabulary and append
+        a start-of-sequence and end-of-sequence token.
+        :param sentence: the sentence in words (strings)
+        :param vocabulary: whether to use the input or target vocabulary.
+        :return: the sentence in integers.
+        """
+        vocab = self.get_vocabulary(vocabulary)
+        item = vocab.word_to_idx(item)
+        return item
 
     def array_to_sentence(self, sentence_array: List[int], vocabulary: str) -> List[str]:
         """

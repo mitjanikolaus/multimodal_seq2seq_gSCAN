@@ -22,7 +22,8 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
           encoder_hidden_size: int, learning_rate: float, adam_beta_1: float, adam_beta_2: float, lr_decay: float,
           lr_decay_steps: int, resume_from_file: str, max_training_iterations: int, output_directory: str,
           print_every: int, evaluate_every: int, conditional_attention: bool, auxiliary_task: bool,
-          weight_target_loss: float, weight_lm_loss: float, attention_type: str, k: int, max_training_examples=None, seed=42, **kwargs):
+          weight_target_loss: float, weight_lm_loss: float, attention_type: str, k: int,
+          visual_transform_cnn_kernel_size, max_training_examples=None, seed=42, **kwargs):
     device = torch.device(type='cuda') if use_cuda else torch.device(type='cpu')
     cfg = locals().copy()
 
@@ -32,7 +33,8 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
     training_set = GroundedScanDataset(data_path, data_directory, split="train",
                                        input_vocabulary_file=input_vocab_path,
                                        target_vocabulary_file=target_vocab_path,
-                                       generate_vocabulary=generate_vocabularies, k=k)
+                                       generate_vocabulary=generate_vocabularies, k=k,
+                                       visual_transform_cnn_kernel_size=visual_transform_cnn_kernel_size)
     training_set.read_dataset(max_examples=max_training_examples,
                               simple_situation_representation=simple_situation_representation)
     logger.info("Done Loading Training set.")
@@ -49,7 +51,8 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
     logger.info("Loading Dev. set...")
     test_set = GroundedScanDataset(data_path, data_directory, split="dev",  # TODO: use dev set here
                                    input_vocabulary_file=input_vocab_path,
-                                   target_vocabulary_file=target_vocab_path, generate_vocabulary=False, k=0)
+                                   target_vocabulary_file=target_vocab_path, generate_vocabulary=False, k=0,
+                                   visual_transform_cnn_kernel_size=visual_transform_cnn_kernel_size)
     test_set.read_dataset(max_examples=None,
                           simple_situation_representation=simple_situation_representation)
 
@@ -91,19 +94,37 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
 
         # Shuffle the dataset and loop over it.
         training_set.shuffle_data()
-        for (input_batch, input_lengths, _, situation_batch, _, target_batch,
-             target_lengths, agent_positions, target_positions, _) in training_set.get_data_iterator(
-                batch_size=training_batch_size):
+        for (input_batch_instruct, input_batch_action, input_lengths_instruct, input_lengths_action, _, situation_batch,
+             _, target_batch, target_lengths, agent_positions, target_positions, _, _) in training_set.get_data_iterator(
+            batch_size=training_batch_size):
             is_best = False
             model.train()
 
-            # Forward pass.
-            target_scores, target_position_scores, instruction_lm_scores = model(commands_input=input_batch, commands_lengths=input_lengths,
-                                                          situations_input=situation_batch, target_batch=target_batch,
-                                                          target_lengths=target_lengths)
+            # # Forward pass.
+            # target_scores, target_position_scores, instruction_lm_scores = model(commands_input=input_batch, commands_lengths=input_lengths,
+            #                                               situations_input=situation_batch, target_batch=target_batch,
+            #                                               target_lengths=target_lengths)
+            # actions_loss = model.get_loss(target_scores, target_batch)
+            # action Forward pass.
+            target_scores, target_position_scores, _ = model(commands_input=input_batch_action,
+                                                             commands_lengths=input_lengths_action,
+                                                             situations_input=situation_batch,
+                                                             target_batch=target_batch,
+                                                             target_lengths=target_lengths,
+                                                             target_positions=target_positions,
+                                                             mode='action')
             actions_loss = model.get_loss(target_scores, target_batch)
 
-            lm_loss = model.get_lm_loss(instruction_lm_scores, input_batch)
+            # instruct Forward pass.
+            _, _, instruction_lm_scores = model(commands_input=input_batch_instruct,
+                                                commands_lengths=input_lengths_instruct,
+                                                situations_input=situation_batch,
+                                                target_batch=target_batch,
+                                                target_lengths=target_lengths,
+                                                target_positions=target_positions,
+                                                mode='instruct')
+
+            lm_loss = model.get_lm_loss(instruction_lm_scores, input_batch_instruct)
             loss = actions_loss + (weight_lm_loss * lm_loss)
 
             if auxiliary_task:
@@ -143,7 +164,8 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
                         max_decoding_steps=max_decoding_steps, pad_idx=test_set.target_vocabulary.pad_idx,
                         sos_idx=test_set.target_vocabulary.sos_idx,
                         eos_idx=test_set.target_vocabulary.eos_idx,
-                        max_examples_to_evaluate=kwargs["max_testing_examples"], dataset=test_set)
+                        max_examples_to_evaluate=kwargs["max_testing_examples"], dataset=test_set,
+                        test_batch_size=1)
                     logger.info("  Evaluation Accuracy: %5.2f Exact Match: %5.2f "
                                 " Target Accuracy: %5.2f Perplexity: %5.2f"
                                 % (accuracy, exact_match, target_accuracy, perplexity))

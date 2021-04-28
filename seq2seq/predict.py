@@ -1,3 +1,5 @@
+import random
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -111,101 +113,165 @@ def predict(data_iterator: Iterator, model: nn.Module, lm_vocab: Vocabulary, max
     accuracies = []
     lm_losses = []
 
-    for (input_batch, input_lengths, derivation_spec, situation_batch, situation_spec, target_batch,
-         target_lengths, agent_positions, target_positions, situation_image) in data_iterator:
+    no_shape_correct = 0
+    no_color_correct = 0
+    no_samples = 0
+    for (input_sequence_instruct, input_sequence_action, input_lengths_instruct, input_lengths_action,
+         derivation_spec, situation, situation_spec, target_sequence, target_lengths, agent_positions,
+         target_positions, situation_image, unique_objects) in data_iterator:
         i += 1
         if max_examples_to_evaluate:
             if i*test_batch_size >= max_examples_to_evaluate:
                 break
 
-        scores, predicted_action_sequences, action_sequence_lengths, lm_loss = model.predict_actions_batch(
-            input_batch,
-            input_lengths,
-            situation_batch,
-            dataset.target_vocabulary.sos_idx,
-            dataset.target_vocabulary.eos_idx,
-            max_decoding_steps)
+        if test_batch_size > 1:
+            raise NotImplementedError("Eval with batch size > 1 not implemented")
 
-        lm_losses.append(lm_loss)
-        for j in range(test_batch_size):
-            accuracy = sequence_accuracy(predicted_action_sequences[j][:int(target_lengths[j])][1:-1].tolist(),
-                                         target_batch[j][:int(target_lengths[j])][1:-1].tolist())
-            accuracies.append(accuracy)
-
-
-        # # Encode the input sequence.
-        # encoded_input = model.encode_input(commands_input=input_sequence,
-        #                                    commands_lengths=input_lengths,
-        #                                    situations_input=situation)
+        # sampled_target_objects = []
+        # sampled_target_positions = []
+        # sampled_target_position_symbols = []
+        # sampled_target_position_tensors = []
+        # for i, unique_objects_sample in enumerate(unique_objects):
+        #     sampled_target_object = random.sample(unique_objects_sample, 1)[0]
+        #     sampled_target_objects.append(sampled_target_object)
         #
+        #     sampled_target_position = int(sampled_target_object["row"]) * int(situation_spec[i]['grid_size']) + \
+        #                           int(sampled_target_object["column"])
+        #     sampled_target_positions.append(sampled_target_position)
         #
-        # # get encoder lm perplexity
-        # logits = encoded_input['instruction_lm_logits']
+        #     sampled_target_position_symbol = [
+        #         dataset.item_to_array('<' + str(sampled_target_position) + '>', vocabulary='input'),
+        #         dataset.item_to_array('<' + str(sampled_target_position) + '/>', vocabulary='input')]
+        #     sampled_target_position_symbols.append(sampled_target_position_symbol)
+        #
+        #     sampled_target_position_tensor = torch.tensor([sampled_target_position],
+        #                                               dtype=torch.long, device=device)  # .unsqueeze(dim=0)
+        #     sampled_target_position_tensors.append(sampled_target_position_tensor)
+        #
+        # sampled_target_position_tensors = torch.stack(sampled_target_position_tensors)
+
+        # scores, predicted_action_sequences, action_sequence_lengths, lm_loss = model.predict_actions_batch(
+        #     input_batch,
+        #     input_lengths,
+        #     situation_batch,
+        #     dataset.target_vocabulary.sos_idx,
+        #     dataset.target_vocabulary.eos_idx,
+        #     max_decoding_steps)
+
+        # lm_losses.append(lm_loss)
+        # for j in range(test_batch_size):
+        #     accuracy = sequence_accuracy(predicted_action_sequences[j][:int(target_lengths[j])][1:-1].tolist(),
+        #                                  target_batch[j][:int(target_lengths[j])][1:-1].tolist())
+        #     accuracies.append(accuracy)
+        sampled_target_object = random.sample(unique_objects[0], 1)
+        sampled_target_position = int(sampled_target_object[0]["row"]) * int(situation_spec[0]['grid_size']) + \
+                                  int(sampled_target_object[0]["column"])
+
+        sampled_target_position_symbols = [
+            dataset.item_to_array('<' + str(sampled_target_position) + '>', vocabulary='input'),
+            dataset.item_to_array('<' + str(sampled_target_position) + '/>',
+                                         vocabulary='input')]
+        sampled_target_position_tensor = torch.tensor([sampled_target_position],
+                                                      dtype=torch.long, device=device)  # .unsqueeze(dim=0)
+
+        # Encode the input sequence for intruction gen.
+        encoded_input = model.encode_input(commands_input=input_sequence_instruct,
+                                           commands_lengths=input_lengths_instruct,
+                                           situations_input=situation,
+                                           target_positions=sampled_target_position_tensor,
+                                           mode='instruct'
+                                           )
+
+        # get encoder lm perplexity
+        logits = encoded_input['instruction_lm_logits']
         # _, _, vocabulary_size = logits.size()
-        # targets = model.remove_start_of_sequence(input_sequence)
-        # target_scores_2d = logits.reshape(-1, vocabulary_size)
-        # loss = F.cross_entropy(target_scores_2d, targets.view(-1))
-        # lm_perplexity = torch.exp(loss)
+        lm_loss = model.get_lm_loss(logits, input_sequence_instruct)
 
-        # sample 10 sentences
-        # encoded_sitiuation = encoded_input['encoded_situations']
-        # # unsqueze for batch size
-        # sampled_sentence = model.sample(lm_vocab, encoded_sitiuation, sos_idx, eos_idx)
-        # # get original sentence
-        # original_sent = [lm_vocab.idx_to_word(wid) for wid in input_sequence[0, 1:-1].tolist()]
-        # if i % 100 == 0:
-        #     print(situation_spec)
-        #     # relevant_situation = Situation.from_representation(situation_spec[0])
-        #     # dataset.initialize_world(relevant_situation)
-        #     # rendered_image = dataset._world.render().getArray()
-        #     #plt.figure()
-        #     #plt.imshow(rendered_image)
-        #     #plt.show()
-        #     logger.info("original sent # %s" % (i))
-        #     logger.info(' '.join(original_sent))
-        #     logger.info("Sampled sent # %s" % (i))
-        #     logger.info(' '.join(sampled_sentence))
+        ## sample sentences and eval targeted generations
+        # potentially limit eval to scenes with n objects
+        # if len(situation_spec[0]['placed_objects']) == 1:
+        no_samples += 1
+        encoded_situation = encoded_input['encoded_situations']
+        # unsqueze for batch size
+        sampled_sentence = model.sample(lm_vocab, encoded_situation, sos_idx, eos_idx,
+                                        sampled_target_position_symbols, sampled_target_position_tensor)
+        # get original sentence
+        original_sent = [lm_vocab.idx_to_word(wid) for wid in input_sequence_instruct[0, 1:-1].tolist()]
+        # get sampled obj specs
+        color, shape, size = sampled_target_object[0]['color'], sampled_target_object[0]['shape'], \
+                             sampled_target_object[0]['size']
+
+        # eval targeted gen
+        if color in sampled_sentence:
+            no_color_correct += 1
+        if shape in sampled_sentence:
+            no_shape_correct += 1
+
+        count = 0
+        if i % 10 == 0 and count < 6:
+            count += 1
+            relevant_situation = Situation.from_representation(situation_spec[0])
+            dataset.dataset.initialize_world(relevant_situation)
+            rendered_image = dataset.dataset._world.render().getArray()
+
+            logger.info("original sent # %s" % (i))
+            logger.info(' '.join(original_sent))
+            logger.info("Sampled sent # %s" % (i))
+            logger.info(' '.join(sampled_sentence))
+            logger.info("Color: %s Shape: %s Size: %s" % (color, shape, size))
+            logger.info("\n")
+
+            plt.figure()
+            plt.imshow(rendered_image)
+            plt.show()
+
+        # Encode the input sequence for action seq prediction
+        encoded_input = model.encode_input(commands_input=input_sequence_action,
+                                           commands_lengths=input_lengths_action,
+                                           situations_input=situation,
+                                           target_positions=sampled_target_position_tensor,
+                                           mode='action'
+                                           )
 
         # For efficiency
-        # projected_keys_visual = model.visual_attention.key_layer(
-        #     encoded_input["encoded_situations"])  # [bsz, situation_length, dec_hidden_dim]
-        # projected_keys_textual = model.textual_attention.key_layer(
-        #     encoded_input["encoded_commands"]["encoder_outputs"])  # [max_input_length, bsz, dec_hidden_dim]
-        #
-        # # Iteratively decode the output.
-        # output_sequence = []
-        # contexts_situation = []
-        # hidden = model.attention_decoder.initialize_hidden(
-        #     model.tanh(model.enc_hidden_to_dec_hidden(encoded_input["hidden_states"])))
-        # token = torch.tensor([sos_idx], dtype=torch.long, device=device)
-        # decoding_iteration = 0
-        # attention_weights_commands = []
-        # attention_weights_situations = []
-        # while token != eos_idx and decoding_iteration <= max_decoding_steps:
-        #     (output, hidden, context_situation, attention_weights_command,
-        #      attention_weights_situation) = model.decode_input(
-        #         target_token=token, hidden=hidden, encoder_outputs=projected_keys_textual,
-        #         input_lengths=input_lengths, encoded_situations=projected_keys_visual)
-        #     output = F.log_softmax(output, dim=-1)
-        #     token = output.max(dim=-1)[1]
-        #     output_sequence.append(token.data[0].item())
-        #     attention_weights_commands.append(attention_weights_command.tolist())
-        #     attention_weights_situations.append(attention_weights_situation.tolist())
-        #     contexts_situation.append(context_situation.unsqueeze(1))
-        #     decoding_iteration += 1
-        #
-        # if output_sequence[-1] == eos_idx:
-        #     output_sequence.pop()
-        #     attention_weights_commands.pop()
-        #     attention_weights_situations.pop()
-        # if model.auxiliary_task:
-        #     target_position_scores = model.auxiliary_task_forward(torch.cat(contexts_situation, dim=1).sum(dim=1))
-        #     auxiliary_accuracy_target = model.get_auxiliary_accuracy(target_position_scores, target_positions)
-        # else:
-        #     auxiliary_accuracy_agent, auxiliary_accuracy_target = 0, 0
-        # yield (input_sequence, derivation_spec, situation_spec, output_sequence, target_sequence,
-        #        attention_weights_commands, attention_weights_situations, auxiliary_accuracy_target, lm_perplexity)
+        projected_keys_visual = model.visual_attention.key_layer(
+            encoded_input["encoded_situations"])  # [bsz, situation_length, dec_hidden_dim]
+        projected_keys_textual = model.textual_attention.key_layer(
+            encoded_input["encoded_commands"]["encoder_outputs"])  # [max_input_length, bsz, dec_hidden_dim]
 
+        # Iteratively decode the output.
+        output_sequence = []
+        contexts_situation = []
+        hidden = model.attention_decoder.initialize_hidden(
+            model.tanh(model.enc_hidden_to_dec_hidden(encoded_input["hidden_states"])))
+        token = torch.tensor([sos_idx], dtype=torch.long, device=device)
+        decoding_iteration = 0
+        attention_weights_commands = []
+        attention_weights_situations = []
+        while token != eos_idx and decoding_iteration <= max_decoding_steps:
+            (output, hidden, context_situation, attention_weights_command,
+             attention_weights_situation) = model.decode_input(
+                target_token=token, hidden=hidden, encoder_outputs=projected_keys_textual,
+                input_lengths=input_lengths_action, encoded_situations=projected_keys_visual)
+            output = F.log_softmax(output, dim=-1)
+            token = output.max(dim=-1)[1]
+            output_sequence.append(token.data[0].item())
+            attention_weights_commands.append(attention_weights_command.tolist())
+            attention_weights_situations.append(attention_weights_situation.tolist())
+            contexts_situation.append(context_situation.unsqueeze(1))
+            decoding_iteration += 1
+
+        if output_sequence[-1] == eos_idx:
+            output_sequence.pop()
+            attention_weights_commands.pop()
+            attention_weights_situations.pop()
+        if model.auxiliary_task:
+            target_position_scores = model.auxiliary_task_forward(torch.cat(contexts_situation, dim=1).sum(dim=1))
+            auxiliary_accuracy_target = model.get_auxiliary_accuracy(target_position_scores, target_positions)
+        else:
+            auxiliary_accuracy_agent, auxiliary_accuracy_target = 0, 0
+        yield (input_sequence_action, derivation_spec, situation_spec, output_sequence, target_sequence,
+               attention_weights_commands, attention_weights_situations, auxiliary_accuracy_target, lm_loss)
 
     elapsed_time = time.time() - start_time
     logging.info("Predicted for {} examples.".format(i * test_batch_size))

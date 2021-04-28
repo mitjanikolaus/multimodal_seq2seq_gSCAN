@@ -1,3 +1,5 @@
+from math import sqrt
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -26,7 +28,7 @@ class Model(nn.Module):
     def __init__(self, input_vocabulary_size: int, embedding_dimension: int, encoder_hidden_size: int,
                  num_encoder_layers: int, target_vocabulary_size: int, encoder_dropout_p: float,
                  encoder_bidirectional: bool, num_decoder_layers: int, decoder_dropout_p: float,
-                 decoder_hidden_size: int, num_cnn_channels: int, cnn_kernel_size: int,
+                 decoder_hidden_size: int, num_cnn_channels: int, cnn_kernel_size: int, visual_transform_cnn_kernel_size:int,
                  cnn_dropout_p: float, cnn_hidden_num_channels: int, input_padding_idx: int, target_pad_idx: int,
                  target_eos_idx: int, output_directory: str, conditional_attention: bool, auxiliary_task: bool,
                  simple_situation_representation: bool, attention_type: str, **kwargs):
@@ -68,6 +70,7 @@ class Model(nn.Module):
                                   visual_embedding_dim=cnn_hidden_num_channels * 3,
                                   rnn_input_size=embedding_dimension,
                                   hidden_size=encoder_hidden_size, num_layers=num_encoder_layers,
+                                  visual_transform_cnn_kernel_size=visual_transform_cnn_kernel_size,
                                   dropout_probability=encoder_dropout_p, bidirectional=encoder_bidirectional,
                                   padding_idx=input_padding_idx, vocab_size=input_vocabulary_size)
         # Used to project the final encoder state to the decoder hidden state such that it can be initialized with it.
@@ -164,7 +167,6 @@ class Model(nn.Module):
         loss = self.loss_criterion(target_scores_2d, targets.view(-1))
         return loss
 
-
     def get_lm_loss(self, target_scores: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         """
         :param target_scores: probabilities over target vocabulary outputted by the model, of size
@@ -191,12 +193,13 @@ class Model(nn.Module):
         return output_scores_target_pos
 
     def encode_input(self, commands_input: torch.LongTensor, commands_lengths: List[int],
-                     situations_input: torch.Tensor) -> Dict[str, torch.Tensor]:
+                     situations_input: torch.Tensor, target_positions: torch.Tensor, mode: str) -> Dict[str, torch.Tensor]:
         """Pass the input commands through an RNN encoder and the situation input through a CNN encoder."""
         if not self.simple_situation_representation:
             situations_input = self.downsample_image(situations_input)
         encoded_image = self.situation_encoder(situations_input)
-        hidden, encoder_outputs, instruction_lm_logits = self.encoder(commands_input, commands_lengths, encoded_image)
+        hidden, encoder_outputs, instruction_lm_logits = self.encoder(commands_input, commands_lengths,
+                                                                      encoded_image, target_positions, mode)
         return {"encoded_situations": encoded_image, "encoded_commands": encoder_outputs, "hidden_states": hidden,
                 "instruction_lm_logits": instruction_lm_logits}
 
@@ -232,9 +235,12 @@ class Model(nn.Module):
         return decoder_output_batched, context_situation
 
     def forward(self, commands_input: torch.LongTensor, commands_lengths: List[int], situations_input: torch.Tensor,
-                target_batch: torch.LongTensor, target_lengths: List[int]) -> Tuple[torch.Tensor, torch.Tensor]:
+                target_batch: torch.LongTensor, target_lengths: List[int],
+                target_positions : torch.LongTensor, mode: str) -> Tuple[torch.Tensor, torch.Tensor]:
         encoder_output = self.encode_input(commands_input=commands_input, commands_lengths=commands_lengths,
-                                           situations_input=situations_input)
+                                           situations_input=situations_input,
+                                           target_positions=target_positions, mode=mode)
+
         decoder_output, context_situation = self.decode_input_batched(
             target_batch=target_batch, target_lengths=target_lengths, initial_hidden=encoder_output["hidden_states"],
             encoded_commands=encoder_output["encoded_commands"]["encoder_outputs"], command_lengths=commands_lengths,
@@ -288,9 +294,56 @@ class Model(nn.Module):
             shutil.copyfile(path, best_path)
         return path
 
-    def sample_instructions(self, cnn_output_batch, sos_idx, eos_idx, max_time_step=20):
-        """generate one sample"""
+    def sample(self, vocab, cnn_output_batch, sos_idx, eos_idx, sampled_target_position, sampled_target_position_tensor,
+               max_time_step=20):
+        """generate one sample instruction"""
+        sample_words = [sos_idx, sampled_target_position[0]]
 
+        # max/mean pool visual kernel
+        pooled_visual_input_batch = torch.mean(cnn_output_batch, dim=1)
+
+        # transform visual features to lstm. hidden space
+        visual_embedding = self.encoder.visual_transform(pooled_visual_input_batch)  # batch_size x embedding_dim
+        # cnn produces two extra final dims
+        visual_embedding = visual_embedding.squeeze(-1)
+        visual_embedding = visual_embedding.squeeze(-1)
+
+        # unsqueeze first dim because h_0 expects num_layers * num_directions, batch, hidden_size
+        visual_embedding = visual_embedding.unsqueeze(0)
+
+        # use it to init lstm
+        h_tm1 = visual_embedding
+        c_tm1 = visual_embedding #torch.zeros_like(visual_embedding, requires_grad=True)
+        first_step = True
+        for t in range(max_time_step):
+            if first_step:
+                x_tm1_embed = self.encoder.embedding(torch.LongTensor([sample_words[-2]]).to(device))
+                x_tm1_embed = x_tm1_embed.unsqueeze(0)
+                h_t, (last_state, last_cell) = self.encoder.lstm(x_tm1_embed, (h_tm1, c_tm1))
+            else:
+                x_tm1_embed = self.encoder.embedding(torch.LongTensor([sample_words[-1]]).to(device))
+                x_tm1_embed = x_tm1_embed.unsqueeze(0)
+                h_t, (last_state, last_cell) = self.encoder.lstm(x_tm1_embed, h_tm1)
+            #h_t = h_t.view(-1) #self.encoder.dropout(h_t.view(-1))
+            p_t = F.softmax(self.encoder.lm_out(h_t.view(-1)), dim=-1)
+            #x_t_wid = torch.multinomial(p_t, num_samples=1).data[0]
+            #print(p_t, " p_t")
+            x_t_wid = torch.argmax(p_t).item()
+            #print(x_t_wid, " x_t_wid")
+            x_t = vocab.idx_to_word(x_t_wid)
+
+            if x_t_wid == eos_idx or t == max_time_step - 1:
+                return [vocab.idx_to_word(wid) for wid in sample_words[1:]]
+            else:
+                if first_step:
+                    first_step = False
+                else:
+                    sample_words.append(x_t_wid)
+
+            h_tm1 = last_state, last_cell
+
+    def sample_instructions(self, vocab, cnn_output_batch, sos_idx, eos_idx, sampled_target_positions,
+                            sampled_target_position_tensor, max_time_step=20):
         batch_size = cnn_output_batch.shape[0]
 
         ## preproc. visual batch input
@@ -325,10 +378,15 @@ class Model(nn.Module):
             (batch_size,), sos_idx, dtype=torch.int64, device=device
         )
 
+        # the second token is the target position
+        sentences[:, 1] = torch.full(
+            (batch_size,), sampled_target_positions, dtype=torch.int64, device=device
+        )
+
         # use it to init lstm
         h_tm1 = visual_embedding
         first_step = True
-        for t in range(max_time_step):
+        for t in range(2, max_time_step):
             if not first_step:
                 ind_end_token = (
                     torch.nonzero(sentences[:, t] == eos_idx)

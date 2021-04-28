@@ -2,6 +2,7 @@ import torch
 import numpy as np
 from typing import List
 import logging
+from collections import Counter, OrderedDict
 
 logger = logging.getLogger(__name__)
 
@@ -62,3 +63,12 @@ def sequence_accuracy(prediction: List[int], target: List[int]) -> float:
     if not total:
         return 0.
     return (correct / total) * 100
+
+class OrderedCounter(Counter, OrderedDict):
+    'Counter that remembers the order elements are first encountered'
+
+    def __repr__(self):
+        return '%s(%r)' % (self.__class__.__name__, OrderedDict(self))
+
+    def __reduce__(self):
+        return self.__class__, (OrderedDict(self),)

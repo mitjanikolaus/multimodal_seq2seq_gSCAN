@@ -90,6 +90,9 @@ parser.add_argument("--encoder_dropout_p", type=float, default=0.3, help="Dropou
 parser.add_argument("--encoder_bidirectional", dest="encoder_bidirectional", default=False, action="store_true")
 parser.add_argument("--encoder_unidirectional", dest="encoder_bidirectional", default=True, action="store_false")
 
+parser.add_argument("--visual_transform_cnn_kernel_size", type=int, default=4, help="Size of the largest filter in the"
+                                                                                    " world state model.")
+
 # Decoder arguments
 parser.add_argument("--num_decoder_layers", type=int, default=1)
 parser.add_argument("--attention_type", type=str, default='bahdanau', choices=['bahdanau', 'luong'],
@@ -136,7 +139,8 @@ def main(flags):
             test_set = GroundedScanDataset(data_path, flags["data_directory"], split=split,
                                            input_vocabulary_file=flags["input_vocab_path"],
                                            target_vocabulary_file=flags["target_vocab_path"], generate_vocabulary=False,
-                                           k=flags["k"])
+                                           k=flags["k"],
+                                           visual_transform_cnn_kernel_size=flags["visual_transform_cnn_kernel_size"])
             test_set.read_dataset(max_examples=flags["max_testing_examples"],
                                   simple_situation_representation=flags["simple_situation_representation"])
             logger.info("Done Loading {} dataset split.".format(flags["split"]))
