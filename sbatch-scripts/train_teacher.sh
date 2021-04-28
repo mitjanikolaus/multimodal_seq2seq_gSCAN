@@ -7,11 +7,11 @@
 #SBATCH --mem=64000
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
-#SBATCH --output=out/train_teacher_lm_50.out
-#SBATCH --error=out/train_teacher_lm_50.out
+#SBATCH --output=out/train_teacher_lm_50_new.out
+#SBATCH --constraint=cuda75|cuda61
 
 source activate gscan
 
 # train model on teacher train split
-python -u -m seq2seq --mode=train --max_decoding_steps=120 --max_testing_examples=2000 --data_directory=data/teacher_small_50 --attention_type=bahdanau --no_auxiliary_task --conditional_attention --output_directory=out_teacher_lm_small_50 --training_batch_size=200 --max_training_iterations=200000 --seed=1
+python -u -m seq2seq --mode=train --max_decoding_steps=120 --max_testing_examples=2000 --data_directory=data/teacher_small_50 --attention_type=bahdanau --no_auxiliary_task --conditional_attention --output_directory=out_teacher_lm_small_50_new --training_batch_size=200 --max_training_iterations=200000 --seed=1 --evaluate_every 100
 
