@@ -153,17 +153,19 @@ class GroundedScanDataset(object):
         self._input_lengths_instruct = np.array([])
         self._input_lengths_action = np.array([])
         self._target_lengths = np.array([])
+        positions = [str(p) for p in range(visual_transform_cnn_kernel_size ** 2)]
         if generate_vocabulary:
             logger.info("Generating vocabularies...")
             self.input_vocabulary = Vocabulary()
             self.target_vocabulary = Vocabulary()
             #get list of positions
-            positions = [str(p) for p in range(visual_transform_cnn_kernel_size ** 2)]
             self.read_vocabularies(positions)
             logger.info("Done generating vocabularies.")
         else:
             logger.info("Loading vocabularies...")
             self.input_vocabulary = Vocabulary.load(os.path.join(save_directory, input_vocabulary_file))
+            self.input_vocabulary.add_positional_symbols(positions)
+
             self.target_vocabulary = Vocabulary.load(os.path.join(save_directory, target_vocabulary_file))
             logger.info("Done loading vocabularies.")
 
