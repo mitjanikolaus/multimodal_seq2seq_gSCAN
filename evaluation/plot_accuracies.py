@@ -31,7 +31,7 @@ def plot_train_losses(args):
     plt.show()
 
     # train_logs["ppl"] = train_logs.lm_loss.map(lambda x: np.exp(x))
-    sns.lineplot(data=train_logs[["loss", "actions_loss", "lm_loss", "ppl"]])
+    sns.lineplot(data=train_logs[["loss", "actions_loss", "lm_loss"]])
 
     if args.x_max:
         plt.xlim(0, args.x_max)
