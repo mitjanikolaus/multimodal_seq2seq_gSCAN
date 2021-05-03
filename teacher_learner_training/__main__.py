@@ -16,6 +16,62 @@ from seq2seq.evaluate import evaluate
 logger = logging.getLogger(__name__)
 use_cuda = True if torch.cuda.is_available() else False
 
+
+def forward_pass_teacher_to_learner_curious(situation_batch, model_teacher, model_learner, training_set, max_decoding_steps, weight_lm_loss):
+    # Generate instruction and target action sequence using teacher
+    encoded_situations = model_teacher.encode_situations(situation_batch)
+
+    _, sampled_sentences, sentence_lengths = model_teacher.sample_instructions(encoded_situations,
+                                                                               training_set.target_vocabulary.sos_idx,
+                                                                               training_set.target_vocabulary.eos_idx,
+                                                                               max_decoding_steps)
+
+    # Generate target action sequences using teacher
+    _, teacher_action_sequences, teacher_action_sequence_lengths, _ = model_teacher.predict_actions_batch(
+        sampled_sentences,
+        sentence_lengths,
+        situation_batch,
+        training_set.target_vocabulary.sos_idx,
+        training_set.target_vocabulary.eos_idx,
+        max_decoding_steps)
+
+    # logger.info(f"Teacher-generated instructions")
+    # for sentence, action_sequence in zip(sampled_sentences, teacher_action_sequences):
+    #     print(" ".join([instruction_vocab.idx_to_word(wid) for wid in sentence if
+    #                 wid != training_set.target_vocabulary.pad_idx]))
+    #     print(" ".join([action_vocab.idx_to_word(a) for a in action_sequence if a != action_vocab.pad_idx]))
+
+    # Forward pass though learner using teacher-generated instruction and action targets.
+    with torch.no_grad():
+        target_scores_cur, _, _ = model_learner(commands_input=sampled_sentences,
+                                             commands_lengths=sentence_lengths,
+                                             situations_input=situation_batch,
+                                             target_batch=teacher_action_sequences.clone(),
+                                             target_lengths=teacher_action_sequence_lengths)
+
+        curiosities = model_learner.get_curiousity_scores(target_scores_cur, teacher_action_sequences.clone())
+
+    # Select batch_size/2 elements with top curiosity scores
+    _, indices = curiosities.topk(int(curiosities.shape[0]/2))
+
+    # Do second forward pass with gradient computation on filtered batch elements
+    target_scores, _, instruction_lm_scores = model_learner(commands_input=sampled_sentences[indices],
+                                                             commands_lengths=sentence_lengths[indices],
+                                                             situations_input=situation_batch[indices],
+                                                             target_batch=teacher_action_sequences[indices],
+                                                             target_lengths=teacher_action_sequence_lengths[indices])
+
+    actions_loss = model_learner.get_loss(target_scores, teacher_action_sequences[indices])
+
+    # trim target because produced instructions might be shorter in filtered batch
+    sampled_sentences = sampled_sentences[indices, :sentence_lengths[indices].max()]
+
+    lm_loss = model_learner.get_lm_loss(instruction_lm_scores, sampled_sentences)
+    loss = actions_loss + (weight_lm_loss * lm_loss)
+
+    return loss, actions_loss, lm_loss, target_scores, teacher_action_sequences[indices]
+
+
 def forward_pass_teacher_to_learner(situation_batch, model_teacher, model_learner, training_set, max_decoding_steps, weight_lm_loss):
     # Generate instruction and target action sequence using teacher
     encoded_situations = model_teacher.encode_situations(situation_batch)
@@ -242,6 +298,10 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
                 loss, actions_loss, lm_loss, target_scores, target_action_sequences = forward_pass_teacher_to_learner(
                     situation_batch, model_teacher, model_learner, training_set, max_decoding_steps, weight_lm_loss)
 
+            if objective == OBJECTIVE_TEACHER_TO_LEARNER_CURIOUS:
+                loss, actions_loss, lm_loss, target_scores, target_action_sequences = forward_pass_teacher_to_learner_curious(
+                    situation_batch, model_teacher, model_learner, training_set, max_decoding_steps, weight_lm_loss)
+
             elif objective == OBJECTIVE_LEARNER_TO_TEACHER_TO_LEARNER:
                 loss, actions_loss, lm_loss, target_scores, target_action_sequences = \
                     forward_pass_learner_to_teacher_to_learner(situation_batch, model_teacher, model_learner,
@@ -322,7 +382,6 @@ def train(data_path: str, data_directory: str, generate_vocabularies: bool, inpu
                     eval_logs[training_iteration] = logs
                     json.dump(eval_logs, open(eval_logs_file, mode='w'))
 
-
             training_iteration += 1
             if training_iteration > max_training_iterations:
                 break
@@ -339,6 +398,7 @@ from seq2seq.model import Model
 from seq2seq.predict import predict_and_save
 
 OBJECTIVE_TEACHER_TO_LEARNER = "teacher-to-learner"
+OBJECTIVE_TEACHER_TO_LEARNER_CURIOUS = "teacher-to-learner-curious"
 OBJECTIVE_LEARNER_TO_TEACHER_TO_LEARNER = "learner-to-teacher-to-learner"
 OBJECTIVE_TL_LTL = "both"
 
@@ -363,7 +423,8 @@ parser.add_argument("--resume_from_file_teacher", type=str, default="", help="Fu
 parser.add_argument("--resume_from_file_learner", type=str, default="", help="Full path to previously saved learner "
                                                                              "model to load.")
 parser.add_argument("--objective", type=str, default=OBJECTIVE_TEACHER_TO_LEARNER,
-                    choices=[OBJECTIVE_TEACHER_TO_LEARNER, OBJECTIVE_LEARNER_TO_TEACHER_TO_LEARNER, OBJECTIVE_TL_LTL],
+                    choices=[OBJECTIVE_TEACHER_TO_LEARNER, OBJECTIVE_LEARNER_TO_TEACHER_TO_LEARNER, OBJECTIVE_TL_LTL,
+                             OBJECTIVE_TEACHER_TO_LEARNER_CURIOUS],
                     help="Which objective to use")
 
 
