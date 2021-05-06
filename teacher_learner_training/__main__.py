@@ -35,7 +35,8 @@ def forward_pass_teacher_to_learner_curious(situation_batch, model_teacher, mode
         training_set.target_vocabulary.eos_idx,
         max_decoding_steps)
 
-    # logger.info(f"Teacher-generated instructions")
+    # logger.info(f"Teacher-generated instructions: ")
+    # instruction_vocab = training_set.get_vocabulary('input')
     # for sentence, action_sequence in zip(sampled_sentences, teacher_action_sequences):
     #     print(" ".join([instruction_vocab.idx_to_word(wid) for wid in sentence if
     #                 wid != training_set.target_vocabulary.pad_idx]))
@@ -43,16 +44,25 @@ def forward_pass_teacher_to_learner_curious(situation_batch, model_teacher, mode
 
     # Forward pass though learner using teacher-generated instruction and action targets.
     with torch.no_grad():
+        # TODO: disable teacher forcing?!
+        model_learner.eval()
         target_scores_cur, _, _ = model_learner(commands_input=sampled_sentences,
                                              commands_lengths=sentence_lengths,
                                              situations_input=situation_batch,
                                              target_batch=teacher_action_sequences.clone(),
                                              target_lengths=teacher_action_sequence_lengths)
 
-        curiosities = model_learner.get_curiousity_scores(target_scores_cur, teacher_action_sequences.clone())
+        curiosities = model_learner.get_curiousity_scores(target_scores_cur, teacher_action_sequences.clone(),
+                                                          teacher_action_sequence_lengths)
+        model_learner.train()
 
     # Select batch_size/2 elements with top curiosity scores
     _, indices = curiosities.topk(int(curiosities.shape[0]/2))
+
+    # logger.info(f"Teacher-generated instructions (filtered by curiosity): ")
+    # for sentence, action_sequence in zip(sampled_sentences[indices], teacher_action_sequences[indices]):
+    #     print(" ".join([instruction_vocab.idx_to_word(wid) for wid in sentence if
+    #                     wid != training_set.target_vocabulary.pad_idx]))
 
     # Do second forward pass with gradient computation on filtered batch elements
     target_scores, _, instruction_lm_scores = model_learner(commands_input=sampled_sentences[indices],

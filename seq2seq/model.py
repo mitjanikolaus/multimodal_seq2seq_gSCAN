@@ -164,7 +164,8 @@ class Model(nn.Module):
         loss = self.loss_criterion(target_scores_2d, targets.view(-1))
         return loss
 
-    def get_curiousity_scores(self, target_scores: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+    def get_curiousity_scores(self, target_scores: torch.Tensor, targets: torch.Tensor, target_lengths: torch.Tensor) \
+            -> torch.Tensor:
         """
         :param target_scores: probabilities over target vocabulary outputted by the model, of size
                               [batch_size, max_target_length, target_vocab_size]
@@ -177,8 +178,8 @@ class Model(nn.Module):
         target_scores_2d = target_scores.reshape(-1, vocabulary_size)
         subjective_novelties = F.nll_loss(target_scores_2d, targets.view(-1), ignore_index=0, reduction="none")
 
-        # TODO do not use softmax again but rather safe pre-log softmax output!
-        softmaxed_scores = F.softmax(target_scores_2d, dim=1)
+        # revert logarithm function by applying exp
+        softmaxed_scores = target_scores_2d.exp()
 
         # Gather all scores for gold outputs
         probs = softmaxed_scores.gather(1, targets.view(-1).unsqueeze(1)).flatten()
@@ -189,7 +190,7 @@ class Model(nn.Module):
 
         curiosity_per_sequence = torch.zeros(batch_size, device=device)
         for i in range(batch_size):
-            curiosity_per_sequence[i] = curiosity[(i*max_seq_length):(i+1)*max_seq_length].sum()
+            curiosity_per_sequence[i] = curiosity[(i*max_seq_length):(i*max_seq_length)+target_lengths[i]].mean()
 
         return curiosity_per_sequence
 
